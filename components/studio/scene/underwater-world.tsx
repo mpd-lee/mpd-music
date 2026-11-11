@@ -10,6 +10,34 @@ const noRaycast = () => null
 
 type FishProps = { index: number; quality: GraphicsTier; school?: number }
 
+function UnderwaterDome() {
+  const geometry = useMemo(() => {
+    const sphere = new THREE.SphereGeometry(92, 40, 24)
+    const positions = sphere.attributes.position as THREE.BufferAttribute
+    const colors: number[] = []
+    const deep = new THREE.Color('#032b46')
+    const middle = new THREE.Color('#075f83')
+    const surface = new THREE.Color('#31a7b8')
+    for (let i = 0; i < positions.count; i++) {
+      const y = THREE.MathUtils.clamp((positions.getY(i) / 92 + 1) * 0.5, 0, 1)
+      const color = y < 0.58
+        ? deep.clone().lerp(middle, THREE.MathUtils.smoothstep(y, 0.05, 0.58))
+        : middle.clone().lerp(surface, THREE.MathUtils.smoothstep(y, 0.58, 1))
+      const variation = 0.97 + 0.03 * Math.sin(positions.getX(i) * 0.08 + positions.getZ(i) * 0.05)
+      color.multiplyScalar(variation)
+      colors.push(color.r, color.g, color.b)
+    }
+    sphere.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    sphere.computeBoundingSphere()
+    return sphere
+  }, [])
+  return (
+    <mesh geometry={geometry} raycast={noRaycast} renderOrder={-10}>
+      <meshBasicMaterial vertexColors side={THREE.BackSide} fog={false} depthWrite={false} />
+    </mesh>
+  )
+}
+
 function TropicalFish({ index, quality, school = 0 }: FishProps) {
   const root = useRef<THREE.Group>(null)
   const tail = useRef<THREE.Group>(null)
@@ -18,7 +46,7 @@ function TropicalFish({ index, quality, school = 0 }: FishProps) {
   const colors = ['#f6a23e', '#22b8ca', '#e77d59', '#8fc86c', '#e7c75c', '#709ee7', '#d891c5', '#e8dfc9']
   const color = colors[(index + school * 3) % colors.length]
   const isClownfish = (index + school) % 5 === 0
-  const segments = quality === 'mobile' ? 16 : 24
+  const segments = quality === 'mobile' ? 18 : quality === 'balanced' ? 28 : 36
 
   useFrame((state) => {
     const group = root.current
@@ -124,10 +152,18 @@ function SeaTurtle({ position, scale = 1 }: { position: [number, number, number]
         <sphereGeometry args={[1, 24, 16]} />
         <meshPhysicalMaterial color="#aa884b" roughness={0.48} clearcoat={0.16} />
       </mesh>
-      <mesh position={[0, 0.31, 0]} scale={[0.55, 0.055, 0.72]}>
-        <sphereGeometry args={[1, 16, 12]} />
-        <meshStandardMaterial color="#c9aa69" roughness={0.64} wireframe />
-      </mesh>
+      {[
+        [0, 0.405, 0] as [number, number, number],
+        [-0.29, 0.34, 0.02] as [number, number, number],
+        [0.29, 0.34, 0.02] as [number, number, number],
+        [0, 0.34, 0.37] as [number, number, number],
+        [0, 0.34, -0.37] as [number, number, number],
+      ].map((position, index) => (
+        <mesh key={index} position={position} scale={index === 0 ? [0.24, 0.018, 0.28] : [0.17, 0.014, 0.22]}>
+          <sphereGeometry args={[1, 12, 8]} />
+          <meshStandardMaterial color={index % 2 ? '#927343' : '#b18a4d'} roughness={0.72} metalness={0.02} />
+        </mesh>
+      ))}
       <mesh position={[0, 0.03, 1.0]} scale={[0.27, 0.23, 0.36]}>
         <sphereGeometry args={[1, 16, 12]} />
         <meshStandardMaterial color="#6a9b59" roughness={0.5} />
@@ -314,10 +350,7 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
         <planeGeometry args={[110, 100, quality === 'mobile' ? 12 : 28, quality === 'mobile' ? 10 : 22]} />
         <meshStandardMaterial color="#b7aa82" roughness={0.96} metalness={0.01} />
       </mesh>
-      <mesh position={[0, 9, -15]} scale={[92, 44, 1]} raycast={noRaycast}>
-        <sphereGeometry args={[1, 32, 18]} />
-        <meshBasicMaterial color="#087c9d" transparent opacity={0.18} side={THREE.BackSide} depthWrite={false} />
-      </mesh>
+      <UnderwaterDome />
 
       {/* A natural reef escarpment with rounded rock shelves and a swim-through cave. */}
       {Array.from({ length: quality === 'mobile' ? 9 : 13 }, (_, i) => {
@@ -332,6 +365,19 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
         </mesh>
       })}
       <CavePassage />
+      {/* Low, irregular reef shoulders close the side horizons while leaving broad swim lanes open. */}
+      {[-1, 1].flatMap((side) => Array.from({ length: quality === 'mobile' ? 3 : 5 }, (_, i) => (
+        <mesh
+          key={`side-reef-${side}-${i}`}
+          position={[side * (32 + (i % 2) * 4), -2.4 + (i % 3) * 0.45, -22 + i * 13]}
+          rotation-z={side * (0.06 + i * 0.025)}
+          scale={[4.5 + (i % 2), 3.3 + (i % 3) * 0.7, 7.5 + (i % 2) * 1.5]}
+          raycast={noRaycast}
+        >
+          <icosahedronGeometry args={[1, 2]} />
+          <meshStandardMaterial color={['#315e61', '#446b67', '#536c66'][i % 3]} roughness={0.96} metalness={0.01} />
+        </mesh>
+      )))}
 
       {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
       {kelpPositions.map((position, i) => <Kelp key={i} position={position} seed={i * 2.1} />)}

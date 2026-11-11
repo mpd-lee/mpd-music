@@ -1,7 +1,7 @@
 'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
-import { RoundedBox, Sky, useTexture } from '@react-three/drei'
+import { RoundedBox, useTexture } from '@react-three/drei'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { createWoodFloorTexture } from '@/lib/textures'
@@ -193,9 +193,9 @@ function EnvironmentBackdrop({ quality }: { quality: GraphicsTier }) {
 
   return (
     <>
-      {/* Procedural atmospheric sky fills the rear forest hemisphere; the forward bay image overlays only the sea-facing arc. */}
-      <mesh geometry={geometry} position={[0, 0, 0]} raycast={noRaycast} renderOrder={-20}>
-        <meshBasicMaterial map={coast} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} fog={false} />
+      {/* The photo arc supplies the real-looking sea and sky in the front view; the rear forest arc is rendered by Outdoor. */}
+      <mesh geometry={geometry} position={[0, 0, 0]} raycast={noRaycast} renderOrder={10}>
+        <meshBasicMaterial map={coast} side={THREE.DoubleSide} toneMapped={false} depthTest depthWrite={false} fog={false} />
       </mesh>
     </>
   )
@@ -374,8 +374,7 @@ export function Room({ onFloorClick, quality = 'high' }: { onFloorClick: (e: Thr
       <OceanGlassWall length={halfX * 2} />
       <GlassWall length={halfZ * 2} position={[halfX, 0, 0]} rotationY={Math.PI / 2} />
       <GlassWall length={halfZ * 2} position={[-halfX, 0, 0]} rotationY={Math.PI / 2} />
-      {/* The procedural sky is mounted outside the texture Suspense boundary so it is always visible, even while the coast panorama loads. */}
-      <Sky distance={350000} sunPosition={[80, 42, -35]} turbidity={6.5} rayleigh={2.4} mieCoefficient={0.0045} mieDirectionalG={0.82} />
+      {/* The coastal photograph supplies the real sky and sea horizon. The old full-screen Sky shader covered both photo backdrops. */}
       <Suspense fallback={null}><EnvironmentBackdrop quality={quality} /></Suspense>
       <BackTableWithProps onTurnTableClick={toggleLP} onBottleClick={playDrinkSound} />
       <Plant position={[-11.2, 0, 8.2]} />

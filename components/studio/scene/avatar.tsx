@@ -2,7 +2,7 @@
 
 import { Html } from '@react-three/drei'
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import * as THREE from 'three'
 import type { StudioPlayer } from '@/lib/use-multiplayer'
 import { getIslandGroundHeight } from '@/lib/island-terrain'
@@ -10,7 +10,8 @@ import { getIslandGroundHeight } from '@/lib/island-terrain'
 type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
 export const AVATAR_START = new THREE.Vector3(0, 0, 4.2)
-const SPEED = 3.15
+const SPEED = 4.25
+type MoveVector = { x: number; z: number; y?: number }
 const SKIN = '#f3cba5'
 const HOODIE = '#2f4a5a'
 const ACCENT = '#e8b26a'
@@ -19,7 +20,7 @@ type AvatarProps = {
   target: THREE.Vector3 | null
   instantTravel?: boolean
   underwaterMode?: boolean
-  moveVector?: { x: number; z: number; y?: number }
+  moveVectorRef: MutableRefObject<MoveVector>
   sitOnArrival?: boolean
   lieOnArrival?: boolean
   seatRotation?: number
@@ -29,7 +30,33 @@ type AvatarProps = {
   resetKey: number
 }
 
-export function Avatar({ target, instantTravel = false, underwaterMode = false, moveVector = { x: 0, z: 0, y: 0 }, sitOnArrival = false, lieOnArrival = false, seatRotation, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
+
+function ScubaBubbleTrail() {
+  const bubbles = useRef<(THREE.Mesh | null)[]>([])
+  useFrame((state) => {
+    const time = state.clock.elapsedTime
+    bubbles.current.forEach((mesh, index) => {
+      if (!mesh) return
+      const cycle = (time * 0.72 + index * 0.29) % 1.18
+      mesh.position.set(Math.sin(time * 1.8 + index * 1.7) * 0.025, 0.015 + cycle * 0.34, 0.015)
+      const radius = 0.012 + cycle * 0.009
+      mesh.scale.setScalar(radius)
+      mesh.visible = true
+    })
+  })
+  return (
+    <group position={[0, 1.02, 0.31]}>
+      {Array.from({ length: 4 }, (_, index) => (
+        <mesh key={index} ref={(mesh) => { bubbles.current[index] = mesh }}>
+          <sphereGeometry args={[1, 8, 6]} />
+          <meshPhysicalMaterial color="#c9f8ff" transparent opacity={0.38} roughness={0.08} metalness={0} clearcoat={0.8} depthWrite={false} />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+export function Avatar({ target, instantTravel = false, underwaterMode = false, moveVectorRef, sitOnArrival = false, lieOnArrival = false, seatRotation, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const leftLeg = useRef<THREE.Group>(null)
@@ -51,11 +78,6 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   const prev = useRef(AVATAR_START.clone())
   const route = useRef<THREE.Vector3[]>([])
   const routeIndex = useRef(0)
-  const moveVectorRef = useRef({ x: 0, z: 0, y: 0 })
-
-  useEffect(() => {
-    moveVectorRef.current = { x: moveVector.x, z: moveVector.z, y: moveVector.y ?? 0 }
-  }, [moveVector])
 
   useEffect(() => {
     if (!controls || !root.current) return
@@ -135,7 +157,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       const direction = right.multiplyScalar(input.x).addScaledVector(forward, -input.z)
       if (direction.lengthSq() > 0.001) {
         direction.normalize()
-        const speed = underwaterMode ? 2.4 : SPEED
+        const speed = underwaterMode ? 3.15 : SPEED
         g.position.addScaledVector(direction, speed * dt)
         const desired = Math.atan2(direction.x, direction.z)
         let diff = desired - g.rotation.y
@@ -154,9 +176,9 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         let diff = desired - g.rotation.y
         diff = Math.atan2(Math.sin(diff), Math.cos(diff))
         g.rotation.y += diff * Math.min(1, dt * 10)
-        const facing = Math.abs(diff) < 1.2 ? 1 : 0.35
-        const moveSpeed = swimming.current && g.position.y < -0.8 ? 2.25 : swimming.current ? 2.65 : SPEED
-        const step = Math.min(dist, moveSpeed * dt * facing)
+        // Keep click-to-move responsive while the avatar smoothly turns toward the destination.
+        const moveSpeed = swimming.current && g.position.y < -0.8 ? 3.05 : swimming.current ? 3.35 : SPEED
+        const step = Math.min(dist, moveSpeed * dt)
         g.position.x += (dx / dist) * step
         g.position.z += (dz / dist) * step
         g.position.y = THREE.MathUtils.lerp(g.position.y, waypoint.y, Math.min(1, dt * 5.5))
@@ -187,10 +209,21 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         // Gentle neutral buoyancy when no vertical input is held.
         g.position.y = THREE.MathUtils.lerp(g.position.y, -1.9 + Math.sin(phase.current * 1.05) * 0.018, 0.025)
       }
-    } else if (!sitting.current && !lying.current && g.position.z > 9.2) {
+    } else if (!sitting.current && !lying.current && (g.position.z > 9.2 || Math.abs(g.position.x) > 12.2)) {
       const onPoolDeck = Math.abs(g.position.x) <= 9.4 && g.position.z >= 11.3 && g.position.z <= 22.7
       const groundY = onPoolDeck ? 0.015 : getIslandGroundHeight(g.position.x, g.position.z)
       g.position.y = THREE.MathUtils.lerp(g.position.y, groundY, Math.min(1, dt * 9))
+    }
+
+    // Keep walking avatars on the walkable island instead of allowing them to drift beyond the terrain mesh.
+    if (!underwaterMode && !swimming.current) {
+      const radius = Math.hypot(g.position.x, g.position.z)
+      const maxRadius = 74.2
+      if (radius > maxRadius) {
+        const scale = maxRadius / radius
+        g.position.x *= scale
+        g.position.z *= scale
+      }
     }
 
     phase.current += dt * (moving ? 10 : sitting.current ? 1.5 : swimming.current ? 4.2 : 2)
@@ -261,7 +294,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         </group>
         <mesh position={[0, 0.58, 0]} castShadow>
           <capsuleGeometry args={[0.2, 0.22, 8, 20]} />
-          <meshStandardMaterial color={HOODIE} roughness={0.85} />
+          <meshStandardMaterial color={showScubaGear ? '#123b55' : HOODIE} roughness={0.72} metalness={showScubaGear ? 0.12 : 0} />
         </mesh>
         <mesh position={[0, 0.6, 0.19]}>
           <boxGeometry args={[0.2, 0.12, 0.02]} />
@@ -270,7 +303,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         <group ref={leftArm} position={[-0.25, 0.7, 0]}>
           <mesh position={[0, -0.13, 0]} rotation-z={0.15} castShadow>
             <capsuleGeometry args={[0.055, 0.2, 6, 12]} />
-            <meshStandardMaterial color={HOODIE} roughness={0.85} />
+            <meshStandardMaterial color={showScubaGear ? '#174b63' : HOODIE} roughness={0.78} />
           </mesh>
           <mesh position={[-0.03, -0.28, 0]}>
             <sphereGeometry args={[0.05, 12, 12]} />
@@ -280,7 +313,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         <group ref={rightArm} position={[0.25, 0.7, 0]}>
           <mesh position={[0, -0.13, 0]} rotation-z={-0.15} castShadow>
             <capsuleGeometry args={[0.055, 0.2, 6, 12]} />
-            <meshStandardMaterial color={HOODIE} roughness={0.85} />
+            <meshStandardMaterial color={showScubaGear ? '#174b63' : HOODIE} roughness={0.78} />
           </mesh>
           <mesh position={[0.03, -0.28, 0]}>
             <sphereGeometry args={[0.05, 12, 12]} />
@@ -345,6 +378,12 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
               <meshStandardMaterial color="#153c51" roughness={0.42} />
             </mesh>
           ))}
+          {/* Small regulator and a fine stream of bubbles rising from the diver's mouth. */}
+          <mesh position={[0.035, 1.025, 0.34]}>
+            <sphereGeometry args={[0.045, 10, 8]} />
+            <meshStandardMaterial color="#192d38" metalness={0.25} roughness={0.3} />
+          </mesh>
+          <ScubaBubbleTrail />
         </group>
       )}
       <Html position={[0, 1.62, 0]} center style={{ pointerEvents: 'none' }} zIndexRange={[10, 0]}>

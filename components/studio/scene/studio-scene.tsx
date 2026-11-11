@@ -70,7 +70,8 @@ export function StudioScene({
   const underwaterRef = useRef(false)
   const localPositionRef = useRef(new THREE.Vector3(0, 0, 4.2))
   const pendingPoolEntry = useRef<{ x: number; z: number } | null>(null)
-  const [moveVector, setMoveVector] = useState<MoveVector>({ x: 0, z: 0 })
+  // High-frequency joystick input is kept in a ref so every finger movement does not re-render the whole 3D scene.
+  const moveVectorRef = useRef<MoveVector>({ x: 0, z: 0, y: 0 })
   const [graphicsTier, setGraphicsTier] = useState<GraphicsTier | null>(null)
   const [adaptiveDpr, setAdaptiveDpr] = useState(0.72)
   const graphics = GRAPHICS_PRESETS[graphicsTier ?? 'mobile']
@@ -88,7 +89,12 @@ export function StudioScene({
   }, [onLocalPosition])
 
   const handleMoveVector = useCallback((value: MoveVector) => {
-    setMoveVector(value)
+    moveVectorRef.current = { x: value.x, z: value.z, y: value.y ?? 0 }
+    // Manual steering immediately cancels an active click-to-walk route.
+    if (Math.hypot(value.x, value.z) > 0.04 || Math.abs(value.y ?? 0) > 0.04) {
+      window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+      setTravel((current) => current ? null : current)
+    }
   }, [])
 
   const handleAvatarArrive = useCallback(() => {
@@ -103,9 +109,6 @@ export function StudioScene({
     setTravel(null)
   }, [])
 
-  useEffect(() => {
-    if (Math.hypot(moveVector.x, moveVector.z) > 0.04 || Math.abs(moveVector.y ?? 0) > 0.04) setTravel((current) => current ? null : current)
-  }, [moveVector])
 
   const riseToSurface = useCallback(() => {
     pendingPoolEntry.current = null
@@ -155,6 +158,7 @@ export function StudioScene({
   const handleFloorClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta > CLICK_DRAG_TOLERANCE) return
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     underwaterRef.current = false
     setUnderwater(false)
     const margin = 0.6
@@ -171,6 +175,7 @@ export function StudioScene({
   const handlePathClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta > CLICK_DRAG_TOLERANCE) return
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
 
     let x = e.point.x
     let z = e.point.z
@@ -180,7 +185,15 @@ export function StudioScene({
       x = THREE.MathUtils.clamp(x, -43, 43)
       z = THREE.MathUtils.clamp(z, -27, 61)
       const clientY = e.nativeEvent?.clientY ?? window.innerHeight * 0.58
-      const verticalRatio = THREE.MathUtils.clamp(clientY / Math.max(1, window.innerHeight), 0, 1)
+      const eventTarget = e.nativeEvent?.target
+      const canvasElement = eventTarget instanceof HTMLCanvasElement
+        ? eventTarget
+        : eventTarget instanceof Element ? eventTarget.closest('canvas') : null
+      const canvasRect = canvasElement?.getBoundingClientRect()
+      const localY = canvasRect ? clientY - canvasRect.top : clientY
+      const canvasHeight = canvasRect?.height ?? window.innerHeight
+      // A tap near the top of the canvas swims upward; a tap near the bottom dives.
+      const verticalRatio = THREE.MathUtils.clamp(localY / Math.max(1, canvasHeight), 0, 1)
       const swimY = THREE.MathUtils.clamp(2.35 - verticalRatio * 6.6, -4.1, 2.35)
       setTravel({ position: new THREE.Vector3(x, swimY, z), sit: false })
       return
@@ -297,7 +310,7 @@ export function StudioScene({
           seatRotation={travel?.rotationY}
           instantTravel={travel?.instant ?? false}
           underwaterMode={underwater}
-          moveVector={moveVector}
+          moveVectorRef={moveVectorRef}
           onArrive={handleAvatarArrive}
           onMove={handleLocalPosition}
           displayName={userName || '접속 중'}

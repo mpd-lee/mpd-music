@@ -64,7 +64,7 @@ function ForestBackdropArc({ quality }: { quality: GraphicsTier }) {
     forest.needsUpdate = true
   }, [forest, quality])
   return (
-    <mesh geometry={geometry} raycast={noRaycast} renderOrder={-25}>
+    <mesh geometry={geometry} raycast={noRaycast} renderOrder={10}>
       <meshBasicMaterial map={forest} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} fog={false} />
     </mesh>
   )
@@ -305,6 +305,11 @@ function FitnessStation({
 }) {
   const [active, setActive] = useState(false)
   const moving = useRef<THREE.Group>(null)
+  useEffect(() => {
+    const stop = () => setActive(false)
+    window.addEventListener('mpd-stop-fitness-machines', stop)
+    return () => window.removeEventListener('mpd-stop-fitness-machines', stop)
+  }, [])
   const wheel = useRef<THREE.Mesh>(null)
   const pedal = useRef<THREE.Group>(null)
   const seat = useRef<THREE.Group>(null)
@@ -340,6 +345,8 @@ function FitnessStation({
   })
 
   const activate = () => {
+    // Stop any previously used station; this click then activates only the selected machine.
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     // The parent garden group performs the 180-degree world transform in worldSeat().
     const usePosition: [number, number, number] = [position[0], 0, position[2] + 1.25]
     if (active) {
@@ -814,8 +821,8 @@ function ShoreBoulder({ position, scale, tint }: { position: [number, number, nu
 export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high' }: { onPathClick: (e: ThreeEvent<MouseEvent>) => void; onSeat: SeatHandler; onRest: SeatHandler; onStand: SeatHandler; quality?: GraphicsTier }) {
   // Dense mixed-species 3D forest. The front-center bay remains open for the ocean view;
   // the rear half and both side flanks are planted with broadleaf, pine and palm trees.
-  const rearTreeCount = quality === 'mobile' ? 8 : quality === 'balanced' ? 14 : 22
-  const flankTreeCount = quality === 'mobile' ? 3 : quality === 'balanced' ? 4 : 5
+  const rearTreeCount = quality === 'mobile' ? 5 : quality === 'balanced' ? 9 : 14
+  const flankTreeCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 3 : 4
   const trees = [
     ...Array.from({ length: rearTreeCount }, (_, index) => {
       const t = (index + 0.5) / rearTreeCount
@@ -842,7 +849,7 @@ export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high'
       }
     }),
   ]
-  const undergrowthCount = quality === 'mobile' ? 5 : quality === 'balanced' ? 9 : 14
+  const undergrowthCount = quality === 'mobile' ? 3 : quality === 'balanced' ? 6 : 9
   const undergrowth = Array.from({ length: undergrowthCount }, (_, index) => {
     const angle = ((index * 2.399963) % (Math.PI * 2))
     const radius = 20 + ((index * 13) % 40)

@@ -13,6 +13,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   const keys = useRef(new Set<string>())
   const stick = useRef<Vector>(ZERO)
   const vertical = useRef(0)
+  const lastPublished = useRef<Vector>(ZERO)
   const activePointer = useRef<number | null>(null)
   const [thumb, setThumb] = useState({ x: 0, y: 0 })
 
@@ -26,7 +27,11 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     const length = Math.hypot(x, z)
     if (length > 1) { x /= length; z /= length }
     const y = underwater ? vertical.current : 0
-    onMove(length < 0.04 && Math.abs(y) < 0.04 ? ZERO : { x, z, y })
+    const next = length < 0.04 && Math.abs(y) < 0.04 ? ZERO : { x, z, y }
+    // Ignore sub-pixel joystick jitter; this keeps camera/scene work quiet on phones.
+    if (Math.abs(next.x - lastPublished.current.x) < 0.025 && Math.abs(next.z - lastPublished.current.z) < 0.025 && Math.abs((next.y ?? 0) - (lastPublished.current.y ?? 0)) < 0.025) return
+    lastPublished.current = next
+    onMove(next)
   }, [onMove, underwater])
 
   useEffect(() => {
@@ -106,6 +111,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
           ref={baseRef}
           className="mpd-joystick-base"
           onPointerDown={(event) => {
+            event.preventDefault()
             activePointer.current = event.pointerId
             event.currentTarget.setPointerCapture(event.pointerId)
             updateStick(event)
