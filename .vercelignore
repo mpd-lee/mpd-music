@@ -1,0 +1,9 @@
+# Never upload local secrets or machine-specific build artifacts to Vercel.
+.env
+.env.*
+!.env.example
+node_modules
+.next
+.git
+.vercel
+*.log

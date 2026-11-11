@@ -1,9 +1,9 @@
 'use client'
 
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { Html, RoundedBox, useTexture } from '@react-three/drei'
+import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { playBlip } from '@/lib/sound'
 import { createScreenTexture } from '@/lib/textures'
 import { Interactive } from './interactive'
 import { ROOM } from './room'
@@ -51,6 +51,39 @@ function ConsoleSurface() {
       if (ref.current!.instanceColor) ref.current!.instanceColor.needsUpdate = true
     }
   }, [spacing])
+
+  const audioActive = useRef(false)
+  useEffect(() => {
+    const onAudioState = (event: Event) => {
+      const detail = (event as CustomEvent<{ active: boolean }>).detail
+      audioActive.current = Boolean(detail?.active)
+    }
+    window.addEventListener('mpd-console-player-state', onAudioState as EventListener)
+    return () => window.removeEventListener('mpd-console-player-state', onAudioState as EventListener)
+  }, [])
+
+  useFrame((state) => {
+    if (!meters.current) return
+    const matrix = new THREE.Matrix4()
+    const quaternion = new THREE.Quaternion()
+    const c = new THREE.Color()
+    for (let ch = 0; ch < CHANNELS; ch++) {
+      const x = -CONSOLE_W / 2 + 0.2 + spacing / 2 + ch * spacing
+      const active = audioActive.current
+      const pulse = Math.abs(Math.sin(state.clock.elapsedTime * (3.1 + (ch % 7) * 0.32) + ch * 0.71))
+      const level = active ? 0.18 + pulse * (0.48 + (ch % 5) * 0.055) : 0.025 + pulse * 0.025
+      matrix.compose(
+        new THREE.Vector3(x, 0.05 + level * 0.09, 0),
+        quaternion,
+        new THREE.Vector3(1, level, 1),
+      )
+      meters.current.setMatrixAt(ch, matrix)
+      c.set(level > 0.82 ? '#ff4f38' : level > 0.58 ? '#ffbf45' : '#48f0a0')
+      meters.current.setColorAt(ch, c)
+    }
+    meters.current.instanceMatrix.needsUpdate = true
+    if (meters.current.instanceColor) meters.current.instanceColor.needsUpdate = true
+  })
 
   return (
     <group>
@@ -106,9 +139,6 @@ function NearfieldMonitor({ position, rotationY = 0, scale = 1 }: { position: [n
         <torusGeometry args={[0.082, 0.014, 10, 36]} />
         <meshStandardMaterial color="#9a9fa4" metalness={0.72} roughness={0.24} />
       </mesh>
-      <Html position={[0, -0.44, 0.31]} center transform distanceFactor={9} style={{ pointerEvents: 'none' }}>
-        <div className="text-[8px] font-black tracking-[0.18em] text-white/70">GENELEC</div>
-      </Html>
     </group>
   )
 }
@@ -337,14 +367,15 @@ function CornerStudioSpeaker({ position, rotationY }: { position: [number, numbe
 }
 
 export function ControlRoom({ onSit }: { onSit: (position: [number, number, number], rotationY: number) => void }) {
-  const tvTex = useTexture('/images/mpd-studio-photo.png')
+  const tvTex = useTexture('/images/mpd-studio-photo.webp')
   tvTex.colorSpace = THREE.SRGBColorSpace
   const dawTex = useMemo(() => createScreenTexture('daw'), [])
   const wallZ = -ROOM.halfZ
   // The rear wall is open now, so place the display safely inside the room.
   const displayZ = wallZ + 1.65
   const studioWebsite = 'https://lotto-ai1.tistory.com/'
-  const openStudioWebsite = () => window.open(studioWebsite, '_blank', 'noopener,noreferrer')
+  // Navigate synchronously in the same tab so browsers do not block the WebGL click as a popup.
+  const openStudioWebsite = () => window.location.assign(studioWebsite)
 
   return (
     <group>
@@ -387,12 +418,11 @@ export function ControlRoom({ onSit }: { onSit: (position: [number, number, numb
       </Interactive>
 
       <Interactive
-        label="MPD Music 유튜브 채널 열기"
+        label="콘솔 클릭 · 음악 재생 및 아날라이저 미터 열기"
         labelOffset={[0, 1.6, 0]}
         position={[0, 0, -5.25]}
         onActivate={() => {
-          playBlip()
-          window.open(YOUTUBE_CHANNEL_URL, '_blank', 'noopener,noreferrer')
+          window.dispatchEvent(new CustomEvent('mpd-open-console-player'))
         }}
       >
         <group>
@@ -441,8 +471,8 @@ export function ControlRoom({ onSit }: { onSit: (position: [number, number, numb
                   <meshStandardMaterial color="#444" metalness={0.7} />
                 </mesh>
               </group>
-              <NearfieldMonitor position={[-1.65, 1.72, -0.72]} rotationY={0.22} scale={1.35} />
-              <NearfieldMonitor position={[1.65, 1.72, -0.72]} rotationY={-0.22} scale={1.35} />
+              <NearfieldMonitor position={[-2.78, 1.48, -0.72]} rotationY={0.18} scale={1.12} />
+              <NearfieldMonitor position={[2.78, 1.48, -0.72]} rotationY={-0.18} scale={1.12} />
             </group>
       </Interactive>
 

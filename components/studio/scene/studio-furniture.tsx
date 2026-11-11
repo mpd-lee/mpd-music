@@ -103,7 +103,7 @@ function VintageMicrophone({ position, onActivate }: { position: [number, number
         <circleGeometry args={[0.48, 56]} />
         <meshStandardMaterial color="#171717" roughness={0.94} />
       </mesh>
-      <Interactive label="클래식 보컬 마이크 · 1:1 음성통화 시작" labelOffset={[0, 2.5, 0]} onActivate={onActivate}>
+      <Interactive label="클래식 보컬 마이크 · 샘플 음성 재생" labelOffset={[0, 2.5, 0]} onActivate={onActivate}>
         <group>
           {/* Weighted vintage tripod base and polished support column. */}
           <mesh position={[0, 0.1, 0]} castShadow>
@@ -174,14 +174,18 @@ function VintageMicrophone({ position, onActivate }: { position: [number, number
         </group>
       </Interactive>
       <Html position={[0, 2.55, 0]} center distanceFactor={9} style={{ pointerEvents: 'none' }}>
-        <div className="whitespace-nowrap rounded-full border border-amber-200/25 bg-neutral-950/85 px-3 py-1 text-[10px] font-semibold tracking-wide text-amber-100 backdrop-blur">VINTAGE VOCAL MIC · CLICK TO VOICE CHAT</div>
+        <div className="whitespace-nowrap rounded-full border border-amber-200/25 bg-neutral-950/85 px-3 py-1 text-[10px] font-semibold tracking-wide text-amber-100 backdrop-blur">VINTAGE VOCAL MIC · CLICK TO PLAY SAMPLE</div>
       </Html>
     </group>
   )
 }
 
 export function StudioFurniture({ onSeat }: { onSeat: SeatHandler; onRest?: SeatHandler }) {
-  const openVoiceChat = () => window.dispatchEvent(new CustomEvent('mpd-open-voice-chat'))
+  const playMicSample = () => {
+    const audio = new Audio('/audio/vocal-demo-synth.wav')
+    audio.volume = 0.7
+    void audio.play().catch(() => {})
+  }
   return (
     <group>
       {/* Two long sofas run along the side glass walls, facing inward. Each has five separate seats. */}
@@ -211,7 +215,7 @@ export function StudioFurniture({ onSeat }: { onSeat: SeatHandler; onRest?: Seat
           </mesh>
         ))}
       </group>
-      <VintageMicrophone position={[-5.15, 0, 2.35]} onActivate={openVoiceChat} />
+      <VintageMicrophone position={[-5.15, 0, 2.35]} onActivate={playMicSample} />
     </group>
   )
 }

@@ -128,7 +128,7 @@ function GrandPiano(props: { position: [number, number, number]; rotationY: numb
   )
   return (
     <group position={props.position} rotation-y={props.rotationY}>
-      <Interactive label="그랜드 피아노 (건반을 눌러 연주)" labelOffset={[0, 1.9, -0.8]} onActivate={() => playPianoChord()}>
+      <Interactive label="그랜드 피아노 (건반을 눌러 연주)" labelOffset={[0, 1.9, -0.8]} onActivate={() => { playPianoChord(); window.dispatchEvent(new Event('mpd-open-piano')) }}>
         <mesh position={[0, 0.62, 0]} rotation-x={-Math.PI / 2} castShadow>
           <extrudeGeometry args={[shape, { depth: 0.32, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.015, bevelSegments: 3, curveSegments: 40 }]} />
           {lacquer}
@@ -443,7 +443,7 @@ function StageKeyboard({ position, rotationY }: { position: [number, number, num
           </mesh>
         </group>
       ))}
-      <Interactive label="로즈 피아노 (건반 클릭)" labelOffset={[0, 0.6, 0]} onActivate={() => [52, 55, 59, 62].forEach((m, i) => playRhodes(m, i * 0.03))} position={[0, 0.82, 0]}>
+      <Interactive label="로즈 피아노 (건반 클릭)" labelOffset={[0, 0.6, 0]} onActivate={() => { [52, 55, 59, 62].forEach((m, i) => playRhodes(m, i * 0.03)); window.dispatchEvent(new Event('mpd-open-piano')) }} position={[0, 0.82, 0]}>
         <mesh castShadow>
           <boxGeometry args={[1.3, 0.12, 0.36]} />
           <meshStandardMaterial color="#b8312b" roughness={0.45} />

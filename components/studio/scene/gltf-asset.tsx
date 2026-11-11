@@ -1,6 +1,6 @@
 'use client'
 
-import { Component, Suspense, useMemo, type ReactNode } from 'react'
+import { Component, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 
@@ -47,6 +47,24 @@ export function GLBAsset({
   scale?: number | [number, number, number]
   fallback?: ReactNode
 }) {
+  const [allowRemoteModel, setAllowRemoteModel] = useState(false)
+
+  useEffect(() => {
+    const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean } }
+    const mobile = window.matchMedia('(pointer: coarse)').matches
+      || window.innerWidth < 820
+      || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+      || (nav.deviceMemory ?? 8) <= 4
+      || Boolean(nav.connection?.saveData)
+    if (mobile) return
+
+    // Keep the first visible frame light; load optional scanned models after the studio is interactive.
+    const timer = window.setTimeout(() => setAllowRemoteModel(true), 1800)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  if (!allowRemoteModel) return <>{fallback}</>
+
   return (
     <AssetErrorBoundary fallback={fallback}>
       <Suspense fallback={fallback}>

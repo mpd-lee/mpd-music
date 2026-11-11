@@ -1,6 +1,6 @@
 'use client'
 
-import { Flame, X } from 'lucide-react'
+import { Flame, X, Trash2 } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import type { GuestEntry } from '@/lib/use-guestbook'
 
@@ -10,6 +10,8 @@ type Props = {
   entries: GuestEntry[]
   storage: 'database' | 'local'
   addEntry: (input: { name: string; message: string; candle: boolean }) => Promise<void>
+  deleteEntry: (id: string | number) => Promise<void>
+  isOwner: boolean
 }
 
 function formatDate(iso: string) {
@@ -20,14 +22,25 @@ function formatDate(iso: string) {
   }
 }
 
-export function GuestbookPanel({ open, onClose, entries, storage, addEntry }: Props) {
+export function GuestbookPanel({ open, onClose, entries, storage, addEntry, deleteEntry, isOwner }: Props) {
   const [name, setName] = useState('')
   const [message, setMessage] = useState('')
   const [candle, setCandle] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | number | null>(null)
 
   if (!open) return null
+
+  async function handleDelete(id: string | number) {
+    if (!isOwner || !window.confirm('이 방명록을 삭제하시겠습니까?')) return
+    setDeletingId(id)
+    setError(null)
+    try { await deleteEntry(id) }
+    catch (err) { setError(err instanceof Error ? err.message : '방명록 삭제에 실패했습니다.') }
+    finally { setDeletingId(null) }
+  }
+
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -121,9 +134,10 @@ export function GuestbookPanel({ open, onClose, entries, storage, addEntry }: Pr
                 {entry.candle && <Flame className="size-3 text-amber-400" aria-label="촛불" />}
                 {entry.name}
               </span>
-              <time className="text-[10px] text-neutral-500" dateTime={entry.createdAt}>
-                {formatDate(entry.createdAt)}
-              </time>
+              <div className="flex items-center gap-2">
+                <time className="text-[10px] text-neutral-500" dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time>
+                {isOwner && <button type="button" disabled={deletingId === entry.id} onClick={() => void handleDelete(entry.id)} aria-label="방명록 삭제" title="대표 관리자: 방명록 삭제" className="rounded p-1 text-rose-300/70 hover:bg-rose-400/10 hover:text-rose-200 disabled:opacity-40"><Trash2 className="size-3.5"/></button>}
+              </div>
             </div>
             <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-neutral-200">{entry.message}</p>
           </li>

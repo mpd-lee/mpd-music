@@ -5,7 +5,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useRef, useState, type ReactNode } from 'react'
 import type { Group } from 'three'
 
-export const CLICK_DRAG_TOLERANCE = 6
+export const CLICK_DRAG_TOLERANCE = 12
 
 type InteractiveProps = {
   label: string

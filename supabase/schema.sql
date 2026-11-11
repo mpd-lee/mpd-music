@@ -82,6 +82,42 @@ exception when duplicate_object then
 end $$;
 
 
+
+-- Shared public guestbook. Public visitors may read and submit entries;
+-- only the server-verified studio owner can delete entries through the API.
+create table if not exists public.guestbook_entries (
+  id uuid primary key default gen_random_uuid(),
+  name text not null check (char_length(name) between 1 and 30),
+  message text not null check (char_length(message) between 1 and 300),
+  candle boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists guestbook_entries_created_at_idx
+  on public.guestbook_entries (created_at desc);
+
+alter table public.guestbook_entries enable row level security;
+alter table public.guestbook_entries replica identity full;
+
+drop policy if exists "Public can read MPD guestbook" on public.guestbook_entries;
+create policy "Public can read MPD guestbook"
+  on public.guestbook_entries for select to anon, authenticated
+  using (true);
+
+drop policy if exists "Public can post MPD guestbook entries" on public.guestbook_entries;
+create policy "Public can post MPD guestbook entries"
+  on public.guestbook_entries for insert to anon, authenticated
+  with check (char_length(name) between 1 and 30 and char_length(message) between 1 and 300);
+
+grant select, insert on public.guestbook_entries to anon, authenticated;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.guestbook_entries;
+exception when duplicate_object then
+  null;
+end $$;
+
 -- Shared chat file storage. Free Supabase projects allow up to 50 MB per file.
 -- NULL allowed_mime_types means common document, archive, audio, video and image files are not blocked by a MIME allow-list.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -125,3 +161,87 @@ drop policy if exists "Chat users can delete their own files" on storage.objects
 create policy "Chat users can delete their own files"
   on storage.objects for delete to authenticated
   using (bucket_id = 'chat-files' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- -----------------------------------------------------------------------------
+-- MPD Studio Realtime reliability update
+-- Run this complete schema again after deploying the multiplayer chat update.
+-- Presence is used only for online join/leave; high-frequency avatar movement
+-- is sent as Broadcast events to avoid flooding Presence sync.
+-- -----------------------------------------------------------------------------
+
+alter table public.direct_messages
+  add column if not exists recipient_id uuid references auth.users (id) on delete cascade,
+  add column if not exists sender_name text not null default 'Guest',
+  add column if not exists content text,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists file_url text,
+  add column if not exists file_name text,
+  add column if not exists file_size bigint,
+  add column if not exists file_type text;
+
+alter table public.direct_messages replica identity full;
+alter table public.global_messages replica identity full;
+
+-- Private studio presence channel: authenticated anonymous visitors may see
+-- the online list and receive avatar movement broadcasts.
+drop policy if exists "MPD users can receive studio presence and movement" on realtime.messages;
+create policy "MPD users can receive studio presence and movement"
+  on realtime.messages for select to authenticated
+  using (
+    realtime.topic() = 'mpd-studio-presence'
+    and extension in ('presence', 'broadcast')
+  );
+
+drop policy if exists "MPD users can publish studio presence and movement" on realtime.messages;
+create policy "MPD users can publish studio presence and movement"
+  on realtime.messages for insert to authenticated
+  with check (
+    realtime.topic() = 'mpd-studio-presence'
+    and extension in ('presence', 'broadcast')
+  );
+
+-- Voice signaling uses a dedicated private topic for each pair of online users.
+-- Topic format: mpd-studio-voice:<user-uuid-1>:<user-uuid-2>
+-- Only either participant may read or publish in that pair's voice room.
+drop policy if exists "MPD voice call participants can receive signaling" on realtime.messages;
+create policy "MPD voice call participants can receive signaling"
+  on realtime.messages for select to authenticated
+  using (
+    extension = 'broadcast'
+    and realtime.topic() like 'mpd-studio-voice:%'
+    and auth.uid()::text in (
+      split_part(realtime.topic(), ':', 2),
+      split_part(realtime.topic(), ':', 3)
+    )
+  );
+
+drop policy if exists "MPD voice call participants can publish signaling" on realtime.messages;
+create policy "MPD voice call participants can publish signaling"
+  on realtime.messages for insert to authenticated
+  with check (
+    extension = 'broadcast'
+    and realtime.topic() like 'mpd-studio-voice:%'
+    and auth.uid()::text in (
+      split_part(realtime.topic(), ':', 2),
+      split_part(realtime.topic(), ':', 3)
+    )
+  );
+
+
+-- Ensure Postgres Changes can publish the rows used by global and 1:1 chat.
+do $$
+begin
+  alter publication supabase_realtime add table public.global_messages;
+exception when duplicate_object then
+  null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.direct_messages;
+exception when duplicate_object then
+  null;
+end $$;
+
+-- Voice calling was intentionally removed. Drop only the obsolete transient signaling inbox; chat history and uploaded files remain untouched.
+drop table if exists public.voice_signals;

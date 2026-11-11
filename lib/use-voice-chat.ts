@@ -61,7 +61,6 @@ export function useVoiceChat(userId: string, targetUserId: string | null) {
       if (!remoteAudioRef.current) {
         const audio = document.createElement('audio')
         audio.autoplay = true
-        audio.playsInline = true
         audio.style.display = 'none'
         document.body.appendChild(audio)
         remoteAudioRef.current = audio

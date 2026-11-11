@@ -1,11 +1,11 @@
 'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
-import { RoundedBox, useTexture } from '@react-three/drei'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { RoundedBox, Sky, useTexture } from '@react-three/drei'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { createWoodFloorTexture } from '@/lib/textures'
-import { createLawnTexture, NaturalTree } from './outdoor'
+import type { GraphicsTier } from '@/lib/graphics-quality'
 
 export const ROOM = { halfX: 12, halfZ: 9, height: 8 }
 const GLASS_TOP = 7.55
@@ -32,7 +32,7 @@ function DolbyCeilingSpeaker({ position }: { position: [number, number, number] 
   )
 }
 
-function VaultedCeiling() {
+function VaultedCeiling({ quality }: { quality: GraphicsTier }) {
   const halfZ = ROOM.halfZ
   // Five-point roof profile: wide eaves cover the side glass, with a tall central crown.
   // The five vertices form four upward-facing facets rather than a shallow inverted V.
@@ -92,7 +92,7 @@ function VaultedCeiling() {
             <boxGeometry args={[0.055, 0.035, depth - 0.4]} />
             <meshBasicMaterial color="#ffd18a" toneMapped={false} />
           </mesh>
-          <pointLight position={[point.x, point.y - 0.38, 0]} color="#ffbd73" intensity={index === 2 ? 22 : 14} distance={14} decay={2} />
+          {quality !== 'mobile' && <pointLight position={[point.x, point.y - 0.38, 0]} color="#ffbd73" intensity={quality === 'balanced' ? 8 : index === 2 ? 22 : 14} distance={14} decay={2} />}
         </group>
       ))}
 
@@ -122,7 +122,7 @@ function VaultedCeiling() {
                   <circleGeometry args={[0.105, 24]} />
                   <meshBasicMaterial color="#ffe0ad" toneMapped={false} />
                 </mesh>
-                <pointLight position={[0, -0.08, 0]} color="#ffd59a" intensity={5} distance={6} decay={2} />
+                {quality !== 'mobile' && <pointLight position={[0, -0.08, 0]} color="#ffd59a" intensity={quality === 'balanced' ? 2.5 : 5} distance={6} decay={2} />}
               </group>
             )
           })}
@@ -132,35 +132,106 @@ function VaultedCeiling() {
   )
 }
 
-function EnvironmentBackdrop() {
-  const ocean = useTexture('/images/mpd-ocean-resort-backdrop.jpg')
-  const grass = useMemo(() => createLawnTexture(), [])
-  ocean.colorSpace = THREE.SRGBColorSpace
-  ocean.anisotropy = 16
-  grass.colorSpace = THREE.SRGBColorSpace
-  grass.anisotropy = 16
+function buildFrontCoastArc(quality: GraphicsTier) {
+  const segments = quality === 'mobile' ? 28 : quality === 'balanced' ? 48 : 72
+  const rows = quality === 'mobile' ? 2 : 4
+  const radius = 98
+  const bottom = -26
+  const top = 123
+  const halfArc = Math.PI * 0.485 // 174.6 degrees: ocean and coastline stay in the forward view.
+  const positions: number[] = []
+  const uvs: number[] = []
+  const indices: number[] = []
+
+  for (let row = 0; row <= rows; row += 1) {
+    const v = row / rows
+    const y = bottom + (top - bottom) * v
+    for (let segment = 0; segment <= segments; segment += 1) {
+      const u = segment / segments
+      const angle = (u * 2 - 1) * halfArc
+      positions.push(Math.sin(angle) * radius, y, -Math.cos(angle) * radius)
+      uvs.push(u, v)
+    }
+  }
+
+  const stride = segments + 1
+  for (let row = 0; row < rows; row += 1) {
+    for (let segment = 0; segment < segments; segment += 1) {
+      const a = row * stride + segment
+      const b = a + 1
+      const c = a + stride
+      const d = c + 1
+      indices.push(a, c, b, b, c, d)
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function EnvironmentBackdrop({ quality }: { quality: GraphicsTier }) {
+  // One 2:1 coastal panorama is mapped onto a broad curved 174-degree screen
+  // facing the front glass. The rear 186 degrees are deliberately left open
+  // for the actual 3D forest, so no blurred photo strip wraps around the room.
+  const coast = useTexture(quality === 'mobile'
+    ? '/images/mpd-front-coastal-bay-mobile.webp'
+    : '/images/mpd-front-coastal-bay.webp')
+  const geometry = useMemo(() => buildFrontCoastArc(quality), [quality])
+
+  useEffect(() => {
+    coast.colorSpace = THREE.SRGBColorSpace
+    coast.wrapS = THREE.ClampToEdgeWrapping
+    coast.wrapT = THREE.ClampToEdgeWrapping
+    coast.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 8
+    coast.needsUpdate = true
+  }, [coast, quality])
+
+  return (
+    <>
+      {/* Procedural atmospheric sky fills the rear forest hemisphere; the forward bay image overlays only the sea-facing arc. */}
+      <mesh geometry={geometry} position={[0, 0, 0]} raycast={noRaycast} renderOrder={-20}>
+        <meshBasicMaterial map={coast} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} fog={false} />
+      </mesh>
+    </>
+  )
+}
+
+function StudioFoundation() {
+  const buttresses = [
+    { x: -12.65, z: -9.55, r: 0.12 }, { x: 0, z: -9.8, r: -0.08 }, { x: 12.65, z: -9.55, r: -0.12 },
+    { x: -12.85, z: -2.8, r: 0.08 }, { x: 12.85, z: 2.8, r: -0.08 },
+    { x: -12.65, z: 9.55, r: -0.12 }, { x: 0, z: 9.8, r: 0.08 }, { x: 12.65, z: 9.55, r: 0.12 },
+  ]
+  const stoneTones = ['#77766d', '#8a8375', '#6d716c', '#928a7a']
 
   return (
     <group>
-      {/* A real 3D lawn begins just outside the glass. No close-up forest wallpaper planes. */}
-      <mesh position={[0, -0.09, -66]} rotation-x={-Math.PI / 2} raycast={noRaycast} receiveShadow>
-        <planeGeometry args={[190, 122]} />
-        <meshStandardMaterial map={grass} roughness={0.96} color="#ffffff" />
-      </mesh>
+      {/* A deep limestone plinth sits flush with the island lawn, not on a floating platform. */}
+      <RoundedBox args={[25.65, 2.28, 19.55]} radius={0.52} smoothness={8} position={[0, -1.16, 0]} receiveShadow castShadow>
+        <meshStandardMaterial color="#a69d8f" roughness={0.96} metalness={0.02} />
+      </RoundedBox>
+      <RoundedBox args={[26.05, 0.34, 19.95]} radius={0.48} smoothness={7} position={[0, -2.12, 0]} receiveShadow castShadow>
+        <meshStandardMaterial color="#81796d" roughness={0.98} />
+      </RoundedBox>
 
-      {/* Physical trees frame the view on both sides, leaving the distant sea visible in the middle. */}
-      <NaturalTree position={[-10.6, 0, -20]} scale={1.18} seed={301} />
-      <NaturalTree position={[10.4, 0, -21]} scale={1.16} seed={307} />
-      <NaturalTree position={[-8.1, 0, -37]} scale={0.94} seed={313} />
-      <NaturalTree position={[8.4, 0, -39]} scale={0.98} seed={317} />
-      <NaturalTree position={[-15.5, 0, -34]} scale={0.9} seed={331} />
-      <NaturalTree position={[15.2, 0, -36]} scale={0.92} seed={337} />
-
-      {/* The ocean panorama is pushed far away, beyond the lawn and actual 3D trees. */}
-      <mesh position={[0, 12.5, -122]} raycast={noRaycast}>
-        <planeGeometry args={[184, 23]} />
-        <meshBasicMaterial map={ocean} toneMapped={false} side={THREE.DoubleSide} />
-      </mesh>
+      {/* Irregular bedrock buttresses visibly lock the pavilion into the coastal headland. */}
+      {buttresses.map((stone, index) => (
+        <group key={`foundation-rock-${index}`} position={[stone.x, -1.95, stone.z]} rotation-y={stone.r}>
+          <mesh position={[0, 0, 0]} scale={[1.32 + (index % 3) * 0.16, 2.1 + (index % 2) * 0.25, 1.08 + (index % 2) * 0.18]} castShadow receiveShadow>
+            <dodecahedronGeometry args={[1, 1]} />
+            <meshStandardMaterial color={stoneTones[index % stoneTones.length]} roughness={0.98} flatShading />
+          </mesh>
+          <mesh position={[0.28, -1.75, 0.08]} scale={[1.02, 1.18, 0.88]} castShadow receiveShadow>
+            <icosahedronGeometry args={[1, 1]} />
+            <meshStandardMaterial color={stoneTones[(index + 2) % stoneTones.length]} roughness={0.99} flatShading />
+          </mesh>
+        </group>
+      ))}
     </group>
   )
 }
@@ -181,7 +252,7 @@ function OceanGlassWall({ length }: { length: number }) {
       </mesh>
       {Array.from({ length: panes + 1 }).map((_, i) => (
         <mesh key={i} position={[-length / 2 + i * paneW, ROOM.height / 2, 0]} raycast={noRaycast} castShadow>
-          <boxGeometry args={[0.06, ROOM.height, 0.12]} />
+          <boxGeometry args={[0.04, ROOM.height, 0.075]} />
           <meshStandardMaterial color="#22272b" roughness={0.28} metalness={0.78} />
         </mesh>
       ))}
@@ -204,7 +275,7 @@ function GlassWall({ length, position, rotationY }: { length: number; position: 
       </mesh>
       {Array.from({ length: panes + 1 }).map((_, i) => (
         <mesh key={i} position={[-length / 2 + i * paneW, GLASS_TOP / 2, 0]} raycast={noRaycast} castShadow>
-          <boxGeometry args={[0.09, GLASS_TOP, 0.16]} />
+          <boxGeometry args={[0.045, GLASS_TOP, 0.09]} />
           <meshStandardMaterial color={BRONZE} roughness={0.4} metalness={0.6} />
         </mesh>
       ))}
@@ -257,7 +328,7 @@ function BackTableWithProps({ onTurnTableClick, onBottleClick }: { onTurnTableCl
   )
 }
 
-export function Room({ onFloorClick }: { onFloorClick: (e: ThreeEvent<MouseEvent>) => void }) {
+export function Room({ onFloorClick, quality = 'high' }: { onFloorClick: (e: ThreeEvent<MouseEvent>) => void; quality?: GraphicsTier }) {
   const { halfX, halfZ } = ROOM
   const floorTex = useMemo(() => createWoodFloorTexture(4, 3), [])
   const [isPlayingLP, setIsPlayingLP] = useState(false)
@@ -290,19 +361,22 @@ export function Room({ onFloorClick }: { onFloorClick: (e: ThreeEvent<MouseEvent
   return (
     <group>
       <ambientLight intensity={1.1} color="#fffcf5" />
-      <directionalLight position={[12, 25, 12]} intensity={2.2} color="#fff2df" castShadow shadow-mapSize={[3072, 3072]} />
+      <directionalLight position={[12, 25, 12]} intensity={2.0} color="#fff2df" castShadow={quality === 'high'} shadow-mapSize={[quality === 'high' ? 2048 : 512, quality === 'high' ? 2048 : 512]} />
       <directionalLight position={[-12, 18, -10]} intensity={1.0} color="#e5efff" />
 
+      <StudioFoundation />
       <mesh rotation-x={-Math.PI / 2} receiveShadow onClick={onFloorClick} name="floor">
         <planeGeometry args={[halfX * 2, halfZ * 2]} />
         <meshStandardMaterial map={floorTex} bumpMap={floorTex} bumpScale={0.015} roughness={0.4} metalness={0.05} />
       </mesh>
 
-      <VaultedCeiling />
+      <VaultedCeiling quality={quality} />
       <OceanGlassWall length={halfX * 2} />
       <GlassWall length={halfZ * 2} position={[halfX, 0, 0]} rotationY={Math.PI / 2} />
       <GlassWall length={halfZ * 2} position={[-halfX, 0, 0]} rotationY={Math.PI / 2} />
-      <EnvironmentBackdrop />
+      {/* The procedural sky is mounted outside the texture Suspense boundary so it is always visible, even while the coast panorama loads. */}
+      <Sky distance={350000} sunPosition={[80, 42, -35]} turbidity={6.5} rayleigh={2.4} mieCoefficient={0.0045} mieDirectionalG={0.82} />
+      <Suspense fallback={null}><EnvironmentBackdrop quality={quality} /></Suspense>
       <BackTableWithProps onTurnTableClick={toggleLP} onBottleClick={playDrinkSound} />
       <Plant position={[-11.2, 0, 8.2]} />
     </group>

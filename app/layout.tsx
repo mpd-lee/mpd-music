@@ -3,8 +3,18 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'MPD Music Studio | 3D 메타버스 녹음실 & 합주실',
-  description: '숲과 바다에 둘러싸인 실사풍 3D 프로 녹음실 & 합주실. 악기를 연주하고 방명록과 촛불을 남겨보세요.',
+  metadataBase: new URL('https://mpd-music.vercel.app'),
+  alternates: { canonical: '/' },
+  openGraph: {
+    type: 'website',
+    locale: 'ko_KR',
+    url: 'https://mpd-music.vercel.app/',
+    siteName: '[MPD] MPD Music Studio',
+    title: '[MPD] MPD Music Studio | 사운드 프로덕션 & 뮤직 커뮤니티',
+    description: '바다와 숲이 펼쳐지는 3D 사운드 프로덕션 스튜디오와 뮤직 커뮤니티.',
+  },
+  title: '[MPD] MPD Music Studio | 사운드 프로덕션 & 뮤직 커뮤니티',
+  description: '바다와 숲이 펼쳐지는 3D MPD 사운드 프로덕션 공간. 음악을 듣고, 악기를 연주하고, 뮤지션과 소통하세요.',
   generator: 'v0.app',
   icons: {
     icon: [

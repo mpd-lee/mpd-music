@@ -16,3 +16,17 @@
 - Hi-Hat Stand: https://cdn.3dassets.dev/assets/33795/v1/model.glb
 
 실제 모델은 `components/studio/scene/gltf-asset.tsx`를 통해 로드합니다. CDN 요청이 실패하면 같은 위치에 내장된 기본 3D 형상으로 대체됩니다.
+
+## 2026-11-05 생성 이미지 에셋
+
+- `public/images/mpd-coastal-sky-panorama.webp`: MPD Music Studio의 360도 해안 전망 배경용으로 생성한 이미지.
+- `public/images/mpd-natural-grass.webp`: 잔디 지면 재질용으로 생성한 타일형 이미지.
+
+두 파일은 이 프로젝트의 시각 자산으로 추가했습니다. 배경 및 잔디는 사진풍 생성 이미지이며, 실제 촬영 또는 실물 스캔 에셋이라고 표기하지 않습니다.
+
+## 2026-11-07 추가 제작 환경 이미지
+
+- `public/images/mpd-front-coastal-bay.webp`
+- `public/images/mpd-front-coastal-bay-mobile.webp`
+
+위 두 파일은 MPD Music Studio의 전면 해안 배경을 위해 새로 생성한 원본 환경 이미지와 모바일 최적화 파생본입니다. 외부 스톡 이미지나 워터마크를 사용하지 않았습니다.
