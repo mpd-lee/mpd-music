@@ -100,6 +100,15 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     vertical.current = value
     publish()
   }
+  const startDiveAxis = (event: ReactPointerEvent<HTMLButtonElement>, value: number) => {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDiveAxis(value)
+  }
+  const stopDiveAxis = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    setDiveAxis(0)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
 
   return (
     <>
@@ -130,9 +139,9 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
         </div>
         {underwater && (
           <div className="mpd-dive-axis" aria-label="수중 위아래 이동">
-            <button type="button" onPointerDown={(event) => { event.preventDefault(); setDiveAxis(1) }} onPointerUp={() => setDiveAxis(0)} onPointerCancel={() => setDiveAxis(0)} onPointerLeave={() => setDiveAxis(0)}><ArrowUp size={16} /> 상승</button>
-            <button type="button" onPointerDown={(event) => { event.preventDefault(); setDiveAxis(-1) }} onPointerUp={() => setDiveAxis(0)} onPointerCancel={() => setDiveAxis(0)} onPointerLeave={() => setDiveAxis(0)}><ArrowDown size={16} /> 하강</button>
-            <small>PC: Space / Shift</small>
+            <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowUp size={16} /> 상승</button>
+            <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowDown size={16} /> 하강</button>
+            <small>PC: Space / Shift · 화면을 위·아래로 눌러 목표 깊이 이동</small>
           </div>
         )}
       </div>

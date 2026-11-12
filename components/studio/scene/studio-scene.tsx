@@ -9,6 +9,8 @@ import { getIslandGroundHeight, ISLAND_WALK_RADIUS } from '@/lib/island-terrain'
 import type { GuestEntry } from '@/lib/use-guestbook'
 import type { StudioPlayer } from '@/lib/use-multiplayer'
 import { AVATAR_START, Avatar, RemoteAvatar, TargetMarker } from './avatar'
+import { CoastalPanorama } from './coastal-panorama'
+import type { FitnessKind } from '@/lib/studio-interactions'
 import { CandleBench } from './candles'
 import { ControlRoom } from './control-room'
 import { CLICK_DRAG_TOLERANCE } from './interactive'
@@ -19,7 +21,7 @@ import { StudioFurniture } from './studio-furniture'
 import { UnderwaterWorld } from './underwater-world'
 import { PlayerControls } from '../player-controls'
 
-const DEFAULT_ORBIT_TARGET: [number, number, number] = [AVATAR_START.x, 1.65, 0.8]
+const DEFAULT_ORBIT_TARGET: [number, number, number] = [AVATAR_START.x, 1.9, 0.8]
 
 const INTERIOR_LIGHTS: [number, number, number][] = [
   [-7.5, 6.8, -3], [0, 7.1, -3], [7.5, 6.8, -3],
@@ -67,13 +69,14 @@ export function StudioScene({
 }) {
   const [travel, setTravel] = useState<TravelAction | null>(null)
   const [underwater, setUnderwater] = useState(false)
+  const [workoutMode, setWorkoutMode] = useState<FitnessKind | null>(null)
   const underwaterRef = useRef(false)
   const localPositionRef = useRef(new THREE.Vector3(0, 0, 4.2))
   const pendingPoolEntry = useRef<{ x: number; z: number } | null>(null)
   // High-frequency joystick input is kept in a ref so every finger movement does not re-render the whole 3D scene.
   const moveVectorRef = useRef<MoveVector>({ x: 0, z: 0, y: 0 })
   const [graphicsTier, setGraphicsTier] = useState<GraphicsTier | null>(null)
-  const [adaptiveDpr, setAdaptiveDpr] = useState(0.72)
+  const [adaptiveDpr, setAdaptiveDpr] = useState(0.9)
   const graphics = GRAPHICS_PRESETS[graphicsTier ?? 'mobile']
   const target = travel?.position ?? null
 
@@ -84,6 +87,15 @@ export function StudioScene({
       underwaterRef.current = true
       setUnderwater(true)
       setTravel(null)
+    } else if (underwaterRef.current && position[1] > 0.18) {
+      // Reaching the surface restores the outdoor scene and normal clothes automatically.
+      underwaterRef.current = false
+      setUnderwater(false)
+      setTravel({
+        position: new THREE.Vector3(THREE.MathUtils.clamp(position[0], -7.2, 7.2), 0.03, 11.15),
+        sit: false,
+        instant: true,
+      })
     }
     onLocalPosition(position, rotationY)
   }, [onLocalPosition])
@@ -130,6 +142,20 @@ export function StudioScene({
     return () => clearInterval(timer)
   }, [])
 
+  useEffect(() => {
+    const stopWorkout = () => setWorkoutMode(null)
+    const startWorkout = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: FitnessKind }>).detail
+      setWorkoutMode(detail?.kind ?? null)
+    }
+    window.addEventListener('mpd-stop-fitness-machines', stopWorkout)
+    window.addEventListener('mpd-start-fitness', startWorkout)
+    return () => {
+      window.removeEventListener('mpd-stop-fitness-machines', stopWorkout)
+      window.removeEventListener('mpd-start-fitness', startWorkout)
+    }
+  }, [])
+
   // Detect phones/tablets and lower rendering cost before the scene becomes interactive.
   useEffect(() => {
     const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean; effectiveType?: string } }
@@ -147,12 +173,12 @@ export function StudioScene({
       ? 'mobile'
       : powerfulDesktop ? 'high' : 'balanced'
     setGraphicsTier(tier)
-    setAdaptiveDpr(GRAPHICS_PRESETS[tier].dpr)
+    setAdaptiveDpr(Math.max(0.82, GRAPHICS_PRESETS[tier].dpr))
   }, [])
 
   const handleSlowFrame = useCallback(() => {
     setGraphicsTier((current) => current === 'high' ? 'balanced' : current === 'balanced' ? 'mobile' : 'mobile')
-    setAdaptiveDpr((current) => Math.max(0.48, Number((current - 0.08).toFixed(2))))
+    setAdaptiveDpr((current) => Math.max(0.72, Number((current - 0.06).toFixed(2))))
   }, [])
 
   const handleFloorClick = useCallback((e: ThreeEvent<MouseEvent>) => {
@@ -181,20 +207,21 @@ export function StudioScene({
     let z = e.point.z
 
     if (underwaterRef.current) {
-      // Tap higher on the screen to swim upward, lower to dive deeper; x/z follow the clicked seabed direction.
-      x = THREE.MathUtils.clamp(x, -43, 43)
-      z = THREE.MathUtils.clamp(z, -27, 61)
-      const clientY = e.nativeEvent?.clientY ?? window.innerHeight * 0.58
-      const eventTarget = e.nativeEvent?.target
-      const canvasElement = eventTarget instanceof HTMLCanvasElement
-        ? eventTarget
-        : eventTarget instanceof Element ? eventTarget.closest('canvas') : null
-      const canvasRect = canvasElement?.getBoundingClientRect()
-      const localY = canvasRect ? clientY - canvasRect.top : clientY
-      const canvasHeight = canvasRect?.height ?? window.innerHeight
-      // A tap near the top of the canvas swims upward; a tap near the bottom dives.
-      const verticalRatio = THREE.MathUtils.clamp(localY / Math.max(1, canvasHeight), 0, 1)
-      const swimY = THREE.MathUtils.clamp(2.35 - verticalRatio * 6.6, -4.1, 2.35)
+      // Underwater clicks use the actual camera ray, not the seabed hit point.
+      // A transparent spherical pick surface makes the whole view clickable,
+      // including the water column above the diver where no floor is visible.
+      const rayDirection = e.ray.direction.clone().normalize()
+      const horizontal = new THREE.Vector2(rayDirection.x, rayDirection.z)
+      if (horizontal.lengthSq() < 0.0001) horizontal.set(0, -1)
+      horizontal.normalize()
+      const distance = THREE.MathUtils.clamp(11 + Math.abs(e.pointer.x) * 5, 9, 16)
+      const current = localPositionRef.current
+      x = THREE.MathUtils.clamp(current.x + horizontal.x * distance, -43, 43)
+      z = THREE.MathUtils.clamp(current.z + horizontal.y * distance, -27, 61)
+      // Three's pointer.y is normalized device-coordinate: top=+1, bottom=-1.
+      // This gives true 3D click-to-swim targets rather than a separate guessed button.
+      const pointerY = THREE.MathUtils.clamp(e.pointer.y, -1, 1)
+      const swimY = THREE.MathUtils.clamp(current.y + pointerY * 4.8, -4.35, 0.42)
       setTravel({ position: new THREE.Vector3(x, swimY, z), sit: false })
       return
     }
@@ -223,18 +250,21 @@ export function StudioScene({
   }, [])
 
   const handleSeat: SeatHandler = useCallback((position: [number, number, number], rotationY: number) => {
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     underwaterRef.current = false
     setUnderwater(false)
     setTravel({ position: new THREE.Vector3(position[0], position[1], position[2]), sit: true, rotationY })
   }, [])
 
   const handleRest: RestHandler = useCallback((position: [number, number, number], rotationY: number) => {
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     underwaterRef.current = false
     setUnderwater(false)
     setTravel({ position: new THREE.Vector3(position[0], position[1], position[2]), sit: false, lie: true, rotationY })
   }, [])
 
   const handleStand: RestHandler = useCallback((position: [number, number, number], rotationY: number) => {
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     underwaterRef.current = false
     setUnderwater(false)
     setTravel({ position: new THREE.Vector3(position[0], position[1], position[2]), sit: false, lie: false, rotationY })
@@ -251,10 +281,11 @@ export function StudioScene({
         dpr={Math.min(graphics.dpr, adaptiveDpr)}
         performance={{ min: 0.45, max: 1, debounce: 180 }}
         gl={{ antialias: graphics.antialias, powerPreference: graphicsTier === 'mobile' ? 'low-power' : 'high-performance', precision: graphicsTier === 'mobile' ? 'mediump' : 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 1.16 : 1.05, stencil: false, preserveDrawingBuffer: false }}
-        camera={{ position: [AVATAR_START.x, 3, AVATAR_START.z + 5.5], fov: 58, near: 0.1, far: 1100 }}
+        camera={{ position: [AVATAR_START.x, 2.75, AVATAR_START.z + 6.5], fov: 56, near: 0.1, far: 1200 }}
         onPointerMissed={() => { document.body.style.cursor = 'auto' }}
       >
         <color attach="background" args={[underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7']} />
+        {!underwater && <Suspense fallback={null}><CoastalPanorama quality={graphicsTier} /></Suspense>}
         <fog attach="fog" args={underwater
           ? ['#075a79', 18, 92]
           : [isNight ? '#0b1329' : '#d8edf5', 420, 1250]}
@@ -303,6 +334,13 @@ export function StudioScene({
           </>
         )}
 
+        {!underwater && (
+          <mesh position={[0, -12, 0]} rotation-x={-Math.PI / 2} onClick={handlePathClick}>
+            <planeGeometry args={[180, 180]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+        )}
+
         <Avatar
           target={target}
           sitOnArrival={travel?.sit ?? false}
@@ -310,6 +348,7 @@ export function StudioScene({
           seatRotation={travel?.rotationY}
           instantTravel={travel?.instant ?? false}
           underwaterMode={underwater}
+          workoutMode={workoutMode}
           moveVectorRef={moveVectorRef}
           onArrive={handleAvatarArrive}
           onMove={handleLocalPosition}
@@ -319,7 +358,7 @@ export function StudioScene({
         {players
           .filter((player) => !underwater || (player.position[2] >= -30 && player.position[2] <= 64))
           .map((player) => <RemoteAvatar key={player.userId} player={player} onSelect={onSelectPlayer} />)}
-        <TargetMarker target={target} />
+        <TargetMarker target={target} underwater={underwater} />
 
         <OrbitControls
           makeDefault
@@ -329,8 +368,8 @@ export function StudioScene({
           rotateSpeed={graphicsTier === 'mobile' ? 0.48 : 0.68}
           minDistance={graphicsTier === 'mobile' ? 3.2 : 2.2}
           maxDistance={underwater ? 42 : graphicsTier === 'mobile' ? 68 : 96}
-          minPolarAngle={0.58}
-          maxPolarAngle={1.82}
+          minPolarAngle={0.68}
+          maxPolarAngle={1.58}
           target={DEFAULT_ORBIT_TARGET}
         />
       </Canvas>

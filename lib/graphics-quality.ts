@@ -7,9 +7,9 @@ export const GRAPHICS_PRESETS: Record<GraphicsTier, {
   environment: boolean
 }> = {
   // Phone/tablet: prioritize responsive movement and fast first entry.
-  mobile:   { dpr: 0.5, shadows: false, antialias: false, environment: false },
+  mobile:   { dpr: 0.88, shadows: false, antialias: true, environment: false },
   // Mid-range laptop / integrated graphics.
-  balanced: { dpr: 0.68, shadows: false, antialias: false, environment: false },
+  balanced: { dpr: 0.92, shadows: false, antialias: true, environment: false },
   // Desktop workstation.
-  high:     { dpr: 0.98, shadows: true,  antialias: true,  environment: true },
+  high:     { dpr: 1.12, shadows: true,  antialias: true,  environment: true },
 }

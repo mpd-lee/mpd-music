@@ -2,38 +2,182 @@
 
 import type { ThreeEvent } from '@react-three/fiber'
 import { useFrame } from '@react-three/fiber'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import type { GraphicsTier } from '@/lib/graphics-quality'
 
 const noRaycast = () => null
 
+function createSeabedTexture() {
+  if (typeof document === 'undefined') return null
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const gradient = ctx.createLinearGradient(0, 0, 512, 512)
+  gradient.addColorStop(0, '#b9ad8b')
+  gradient.addColorStop(0.48, '#d0c19a')
+  gradient.addColorStop(1, '#938b70')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 512, 512)
+  let seed = 19871031
+  const random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
+  for (let i = 0; i < 18000; i += 1) {
+    const x = random() * 512
+    const y = random() * 512
+    const r = 0.35 + random() * 2.4
+    const shade = Math.round(112 + random() * 105)
+    ctx.fillStyle = `rgba(${shade},${shade - 4},${shade - 16},${0.035 + random() * 0.11})`
+    ctx.beginPath(); ctx.ellipse(x, y, r * 1.55, r, random() * Math.PI, 0, Math.PI * 2); ctx.fill()
+  }
+  for (let i = 0; i < 95; i += 1) {
+    const x = random() * 512
+    const y = random() * 512
+    const r = 1.2 + random() * 5.5
+    ctx.fillStyle = `rgba(${70 + Math.round(random() * 50)},${78 + Math.round(random() * 42)},${62 + Math.round(random() * 32)},${0.12 + random() * 0.2})`
+    ctx.beginPath(); ctx.ellipse(x, y, r, r * (0.45 + random() * 0.6), random() * Math.PI, 0, Math.PI * 2); ctx.fill()
+  }
+  // Fine, low-contrast current marks make the sand read as a seabed rather than a flat plane.
+  for (let i = 0; i < 38; i += 1) {
+    const y = random() * 512
+    ctx.strokeStyle = `rgba(244,232,194,${0.045 + random() * 0.07})`
+    ctx.lineWidth = 1 + random() * 2
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(130, y - 8 + random() * 16, 350, y + 8 - random() * 16, 512, y + random() * 8); ctx.stroke()
+  }
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.repeat.set(7, 7)
+  texture.anisotropy = 4
+  return texture
+}
+
 type FishProps = { index: number; quality: GraphicsTier; school?: number }
 
-function UnderwaterDome() {
-  const geometry = useMemo(() => {
-    const sphere = new THREE.SphereGeometry(92, 40, 24)
-    const positions = sphere.attributes.position as THREE.BufferAttribute
-    const colors: number[] = []
-    const deep = new THREE.Color('#032b46')
-    const middle = new THREE.Color('#075f83')
-    const surface = new THREE.Color('#31a7b8')
-    for (let i = 0; i < positions.count; i++) {
-      const y = THREE.MathUtils.clamp((positions.getY(i) / 92 + 1) * 0.5, 0, 1)
-      const color = y < 0.58
-        ? deep.clone().lerp(middle, THREE.MathUtils.smoothstep(y, 0.05, 0.58))
-        : middle.clone().lerp(surface, THREE.MathUtils.smoothstep(y, 0.58, 1))
-      const variation = 0.97 + 0.03 * Math.sin(positions.getX(i) * 0.08 + positions.getZ(i) * 0.05)
-      color.multiplyScalar(variation)
-      colors.push(color.r, color.g, color.b)
+function createUnderwaterPanorama(quality: GraphicsTier) {
+  if (typeof document === 'undefined') return null
+  const canvas = document.createElement('canvas')
+  canvas.width = quality === 'mobile' ? 1024 : 2048
+  canvas.height = canvas.width / 2
+  const width = canvas.width
+  const height = canvas.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+
+  const water = ctx.createLinearGradient(0, 0, 0, height)
+  water.addColorStop(0, '#48aab9')
+  water.addColorStop(0.16, '#167e9d')
+  water.addColorStop(0.44, '#075675')
+  water.addColorStop(0.74, '#063953')
+  water.addColorStop(1, '#031d34')
+  ctx.fillStyle = water
+  ctx.fillRect(0, 0, width, height)
+
+  // Soft surface light fans, kept broad and low-contrast so they read as water volume.
+  const shafts = quality === 'mobile' ? 5 : 9
+  for (let i = 0; i < shafts; i += 1) {
+    const x = (i + 0.5) / shafts * width + Math.sin(i * 2.3) * width * 0.025
+    const spread = width * (0.025 + (i % 3) * 0.009)
+    const beam = ctx.createLinearGradient(x, 0, x + spread * 1.5, height * 0.72)
+    beam.addColorStop(0, 'rgba(190,250,255,0.16)')
+    beam.addColorStop(0.42, 'rgba(120,225,242,0.055)')
+    beam.addColorStop(1, 'rgba(70,190,220,0)')
+    ctx.fillStyle = beam
+    ctx.beginPath()
+    ctx.moveTo(x - spread * 0.35, 0)
+    ctx.lineTo(x + spread * 0.35, 0)
+    ctx.lineTo(x + spread * 2.2, height * 0.78)
+    ctx.lineTo(x - spread * 1.5, height * 0.78)
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  // Subtle caustic filaments near the bright upper water, not high-frequency noise.
+  ctx.lineWidth = Math.max(1, width / 1400)
+  for (let i = 0; i < 42; i += 1) {
+    const y = height * (0.06 + (i % 12) * 0.027)
+    const amp = height * (0.004 + (i % 4) * 0.0015)
+    ctx.strokeStyle = `rgba(190,248,255,${0.025 + (i % 5) * 0.009})`
+    ctx.beginPath()
+    for (let x = 0; x <= width; x += width / 96) {
+      const yy = y + Math.sin(x / width * Math.PI * (5 + i % 4) + i * 0.7) * amp
+      if (x === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy)
     }
-    sphere.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
-    sphere.computeBoundingSphere()
-    return sphere
-  }, [])
+    ctx.stroke()
+  }
+
+  // Distant reef shelves span the entire panorama; trigonometric silhouettes meet seamlessly at both edges.
+  const horizon = height * 0.66
+  const drawRidge = (base: number, amplitude: number, phase: number, color: string) => {
+    ctx.fillStyle = color
+    ctx.beginPath()
+    ctx.moveTo(0, height)
+    for (let x = 0; x <= width; x += width / 160) {
+      const u = x / width * Math.PI * 2
+      const y = base + Math.sin(u * 3 + phase) * amplitude + Math.sin(u * 7 - phase * 0.6) * amplitude * 0.24 + Math.cos(u * 11 + phase) * amplitude * 0.1
+      ctx.lineTo(x, y)
+    }
+    ctx.lineTo(width, height)
+    ctx.closePath()
+    ctx.fill()
+  }
+  drawRidge(horizon + height * 0.015, height * 0.032, 0.7, '#0a5368')
+  drawRidge(horizon + height * 0.075, height * 0.05, 1.8, '#073d54')
+  drawRidge(horizon + height * 0.15, height * 0.055, 2.5, '#052d45')
+
+  // Far coral silhouettes add a readable reef line without competing with the near 3D coral models.
+  const coralPalette = ['#1b6870', '#205c67', '#285e68', '#3d6a68']
+  const count = quality === 'mobile' ? 42 : 82
+  for (let i = 0; i < count; i += 1) {
+    const x = (i / count) * width
+    const baseY = height * (0.80 + (i % 5) * 0.018)
+    const scale = height * (0.025 + (i % 7) * 0.004)
+    ctx.strokeStyle = coralPalette[i % coralPalette.length]
+    ctx.lineWidth = Math.max(2, width / 700)
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(x, baseY)
+    ctx.lineTo(x + Math.sin(i * 1.7) * scale * 0.15, baseY - scale)
+    ctx.lineTo(x + Math.sin(i * 1.7 + 0.8) * scale * 0.36, baseY - scale * 1.7)
+    ctx.moveTo(x, baseY - scale * 0.48)
+    ctx.lineTo(x - scale * 0.46, baseY - scale * 0.92)
+    ctx.moveTo(x + Math.sin(i * 1.7) * scale * 0.15, baseY - scale)
+    ctx.lineTo(x + scale * 0.52, baseY - scale * 1.35)
+    ctx.stroke()
+  }
+
+  // Marine snow and tiny suspended particles.
+  let seed = 7631
+  const random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
+  const particles = quality === 'mobile' ? 280 : 620
+  for (let i = 0; i < particles; i += 1) {
+    const x = random() * width
+    const y = random() * height * 0.88
+    const radius = 0.45 + random() * (quality === 'mobile' ? 1 : 1.5)
+    ctx.fillStyle = `rgba(204,245,248,${0.08 + random() * 0.18})`
+    ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill()
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = true
+  texture.anisotropy = quality === 'mobile' ? 2 : 6
+  return texture
+}
+
+function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
+  const texture = useMemo(() => createUnderwaterPanorama(quality), [quality])
+  const geometry = useMemo(() => new THREE.SphereGeometry(92, quality === 'mobile' ? 32 : 48, quality === 'mobile' ? 20 : 32), [quality])
+  useEffect(() => () => { texture?.dispose() }, [texture])
   return (
-    <mesh geometry={geometry} raycast={noRaycast} renderOrder={-10}>
-      <meshBasicMaterial vertexColors side={THREE.BackSide} fog={false} depthWrite={false} />
+    <mesh geometry={geometry} raycast={noRaycast} renderOrder={-10} rotation-y={Math.PI * 0.5}>
+      <meshBasicMaterial map={texture ?? undefined} side={THREE.BackSide} fog={false} depthWrite={false} toneMapped={false} />
     </mesh>
   )
 }
@@ -314,13 +458,41 @@ function LightShafts({ quality }: { quality: GraphicsTier }) {
   )
 }
 
+function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: (event: ThreeEvent<MouseEvent>) => void }) {
+  const texture = useMemo(() => createSeabedTexture(), [])
+  useEffect(() => {
+    if (texture) {
+      texture.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 6 : 10
+      texture.needsUpdate = true
+    }
+  }, [texture, quality])
+  const geometry = useMemo(() => {
+    const segments = quality === 'mobile' ? 20 : quality === 'balanced' ? 34 : 48
+    const plane = new THREE.PlaneGeometry(110, 100, segments, segments)
+    const positions = plane.attributes.position as THREE.BufferAttribute
+    for (let i = 0; i < positions.count; i += 1) {
+      const x = positions.getX(i)
+      const z = positions.getY(i)
+      positions.setZ(i, Math.sin(x * 0.16) * 0.055 + Math.cos(z * 0.13) * 0.045 + Math.sin((x + z) * 0.08) * 0.035)
+    }
+    positions.needsUpdate = true
+    plane.computeVertexNormals()
+    return plane
+  }, [quality])
+  return (
+    <mesh geometry={geometry} position={[0, -5.35, 0]} rotation-x={-Math.PI / 2} onClick={onPathClick} receiveShadow>
+      <meshStandardMaterial map={texture ?? undefined} color="#ffffff" roughness={0.98} metalness={0} />
+    </mesh>
+  )
+}
+
 export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
   onPathClick: (event: ThreeEvent<MouseEvent>) => void
   quality?: GraphicsTier
 }) {
-  const coralCount = quality === 'mobile' ? 10 : quality === 'balanced' ? 18 : 26
-  const kelpCount = quality === 'mobile' ? 6 : quality === 'balanced' ? 12 : 20
-  const fishCount = quality === 'mobile' ? 10 : quality === 'balanced' ? 20 : 32
+  const coralCount = quality === 'mobile' ? 12 : quality === 'balanced' ? 20 : 30
+  const kelpCount = quality === 'mobile' ? 6 : quality === 'balanced' ? 12 : 18
+  const fishCount = quality === 'mobile' ? 12 : quality === 'balanced' ? 22 : 34
   const coralTints = ['#ef7fa2', '#f29c64', '#a987e8', '#f0c96f', '#53b9aa', '#e887bd']
   const coralPositions = useMemo(() => Array.from({ length: coralCount }, (_, i) => {
     const angle = i * 2.399963
@@ -345,12 +517,14 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
       <pointLight position={[0, 4.8, -5]} color="#55dcf0" intensity={quality === 'mobile' ? 22 : 36} distance={48} decay={2} />
       <LightShafts quality={quality} />
 
-      {/* A broad, softly lit sand plain makes the swimming space feel like a separate ocean realm. */}
-      <mesh position={[0, -5.35, 0]} rotation-x={-Math.PI / 2} onClick={onPathClick} receiveShadow>
-        <planeGeometry args={[110, 100, quality === 'mobile' ? 12 : 28, quality === 'mobile' ? 10 : 22]} />
-        <meshStandardMaterial color="#b7aa82" roughness={0.96} metalness={0.01} />
+      {/* The transparent pick shell allows 3D click-to-swim targets anywhere in the water column. */}
+      <mesh onClick={onPathClick} renderOrder={-5}>
+        <sphereGeometry args={[66, 36, 24]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.BackSide} />
       </mesh>
-      <UnderwaterDome />
+      {/* Textured seabed: subtle sand grains, small pebbles and current marks instead of a flat beige slab. */}
+      <Seabed quality={quality} onPathClick={onPathClick} />
+      <UnderwaterDome quality={quality} />
 
       {/* A natural reef escarpment with rounded rock shelves and a swim-through cave. */}
       {Array.from({ length: quality === 'mobile' ? 9 : 13 }, (_, i) => {

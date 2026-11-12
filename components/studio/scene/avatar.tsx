@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import * as THREE from 'three'
 import type { StudioPlayer } from '@/lib/use-multiplayer'
 import { getIslandGroundHeight } from '@/lib/island-terrain'
+import type { WorkoutMode } from '@/lib/studio-interactions'
 
 type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
@@ -20,6 +21,7 @@ type AvatarProps = {
   target: THREE.Vector3 | null
   instantTravel?: boolean
   underwaterMode?: boolean
+  workoutMode?: WorkoutMode
   moveVectorRef: MutableRefObject<MoveVector>
   sitOnArrival?: boolean
   lieOnArrival?: boolean
@@ -33,30 +35,36 @@ type AvatarProps = {
 
 function ScubaBubbleTrail() {
   const bubbles = useRef<(THREE.Mesh | null)[]>([])
+  const materials = useRef<(THREE.MeshPhysicalMaterial | null)[]>([])
   useFrame((state) => {
     const time = state.clock.elapsedTime
+    // Short breathing bursts: a few tiny bubbles rise, pause, then repeat.
     bubbles.current.forEach((mesh, index) => {
-      if (!mesh) return
-      const cycle = (time * 0.72 + index * 0.29) % 1.18
-      mesh.position.set(Math.sin(time * 1.8 + index * 1.7) * 0.025, 0.015 + cycle * 0.34, 0.015)
-      const radius = 0.012 + cycle * 0.009
-      mesh.scale.setScalar(radius)
-      mesh.visible = true
+      const material = materials.current[index]
+      if (!mesh || !material) return
+      const cycle = (time * 0.42 + index * 0.31) % 1
+      const visible = cycle < 0.46
+      mesh.visible = visible
+      if (!visible) return
+      const rise = cycle / 0.46
+      mesh.position.set(Math.sin(time * 1.9 + index * 1.6) * 0.018, 0.01 + rise * 0.26, 0.015)
+      mesh.scale.setScalar(0.006 + rise * 0.009)
+      material.opacity = 0.22 + (1 - rise) * 0.22
     })
   })
   return (
-    <group position={[0, 1.02, 0.31]}>
-      {Array.from({ length: 4 }, (_, index) => (
+    <group position={[0, 1.035, 0.325]}>
+      {Array.from({ length: 3 }, (_, index) => (
         <mesh key={index} ref={(mesh) => { bubbles.current[index] = mesh }}>
           <sphereGeometry args={[1, 8, 6]} />
-          <meshPhysicalMaterial color="#c9f8ff" transparent opacity={0.38} roughness={0.08} metalness={0} clearcoat={0.8} depthWrite={false} />
+          <meshPhysicalMaterial ref={(material) => { materials.current[index] = material }} color="#d8fbff" transparent opacity={0.38} roughness={0.06} metalness={0} clearcoat={1} depthWrite={false} />
         </mesh>
       ))}
     </group>
   )
 }
 
-export function Avatar({ target, instantTravel = false, underwaterMode = false, moveVectorRef, sitOnArrival = false, lieOnArrival = false, seatRotation, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
+export function Avatar({ target, instantTravel = false, underwaterMode = false, workoutMode = null, moveVectorRef, sitOnArrival = false, lieOnArrival = false, seatRotation, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const leftLeg = useRef<THREE.Group>(null)
@@ -78,17 +86,19 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   const prev = useRef(AVATAR_START.clone())
   const route = useRef<THREE.Vector3[]>([])
   const routeIndex = useRef(0)
+  const underwaterDepthRef = useRef(-1.9)
 
   useEffect(() => {
     if (!controls || !root.current) return
     const pos = root.current.position
-    controls.target.set(pos.x, 1.1, pos.z)
-    camera.position.set(pos.x, 3.0, pos.z + 5.5)
+    controls.target.set(pos.x, 1.9, pos.z)
+    camera.position.set(pos.x, 2.75, pos.z + 6.5)
     controls.update()
   }, [resetKey, controls, camera])
 
   useEffect(() => {
     if (!target) return
+    if (underwaterMode) underwaterDepthRef.current = THREE.MathUtils.clamp(target.y, -4.35, 2.35)
     sitting.current = false
     lying.current = false
     arrived.current = false
@@ -100,6 +110,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       const destination = target.clone()
       const delta = destination.clone().sub(root.current.position)
       root.current.position.copy(destination)
+      if (underwaterMode) underwaterDepthRef.current = destination.y
       prev.current.copy(destination)
       if (controls) {
         controls.target.add(delta)
@@ -141,7 +152,10 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const inputLength = Math.hypot(input.x, input.z)
 
     if (underwaterMode && Math.abs(input.y ?? 0) > 0.04) {
-      g.position.y = THREE.MathUtils.clamp(g.position.y + THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * 2.1 * dt, -4.45, 2.5)
+      arrived.current = true
+      g.position.y = THREE.MathUtils.clamp(g.position.y + THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * 2.55 * dt, -4.45, 2.45)
+      underwaterDepthRef.current = g.position.y
+      moving = true
     }
 
     if (inputLength > 0.04) {
@@ -207,7 +221,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         g.position.y = THREE.MathUtils.lerp(g.position.y, waterFloatY, diving.current ? 0.12 : 0.14)
       } else if ((!target || arrived.current) && Math.abs(input.y ?? 0) < 0.04) {
         // Gentle neutral buoyancy when no vertical input is held.
-        g.position.y = THREE.MathUtils.lerp(g.position.y, -1.9 + Math.sin(phase.current * 1.05) * 0.018, 0.025)
+        g.position.y = THREE.MathUtils.lerp(g.position.y, underwaterDepthRef.current + Math.sin(phase.current * 1.05) * 0.018, 0.025)
       }
     } else if (!sitting.current && !lying.current && (g.position.z > 9.2 || Math.abs(g.position.x) > 12.2)) {
       const onPoolDeck = Math.abs(g.position.x) <= 9.4 && g.position.z >= 11.3 && g.position.z <= 22.7
@@ -226,20 +240,127 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       }
     }
 
-    phase.current += dt * (moving ? 10 : sitting.current ? 1.5 : swimming.current ? 4.2 : 2)
+    phase.current += dt * (moving ? 10 : sitting.current ? 1.5 : swimming.current ? 5.2 : 2)
     const swing = moving ? Math.sin(phase.current) * 0.7 : 0
     const seatedLeg = sitting.current ? -1.12 : 0
-    const swimWave = swimming.current ? Math.sin(phase.current * (diving.current ? 1.1 : 1.6)) * (diving.current ? 0.22 : 0.35) : 0
-    leftLeg.current!.rotation.x = THREE.MathUtils.lerp(leftLeg.current!.rotation.x, swimming.current ? -0.55 + swimWave : lying.current ? -1.15 : moving ? swing : seatedLeg, 0.22)
-    rightLeg.current!.rotation.x = THREE.MathUtils.lerp(rightLeg.current!.rotation.x, swimming.current ? 0.55 - swimWave : lying.current ? -1.15 : moving ? -swing : seatedLeg, 0.22)
-    leftArm.current!.rotation.x = THREE.MathUtils.lerp(leftArm.current!.rotation.x, swimming.current ? -1.0 + swimWave : lying.current ? -0.75 : moving ? -swing * 0.8 : sitting.current ? -0.58 : 0, 0.22)
-    rightArm.current!.rotation.x = THREE.MathUtils.lerp(rightArm.current!.rotation.x, swimming.current ? -1.0 - swimWave : lying.current ? -0.75 : moving ? swing * 0.8 : sitting.current ? -0.58 : 0, 0.22)
-    body.current!.rotation.x = THREE.MathUtils.lerp(body.current!.rotation.x, swimming.current ? (diving.current ? -0.62 : -0.22) : lying.current ? -1.34 : sitting.current ? -0.06 : 0, 0.18)
-    body.current!.position.y = THREE.MathUtils.lerp(
-      body.current!.position.y,
-      swimming.current ? 0.34 + Math.sin(phase.current * 1.15) * 0.025 : lying.current ? 0.25 : sitting.current ? 0.17 : moving ? Math.abs(Math.sin(phase.current)) * 0.05 : Math.sin(phase.current) * 0.012,
-      0.2,
-    )
+    const swimWave = swimming.current ? Math.sin(phase.current * (diving.current ? 1.65 : 1.9)) * (diving.current ? 0.3 : 0.38) : 0
+
+    let leftLegTarget = swimming.current ? -0.55 + swimWave : lying.current ? -1.15 : moving ? swing : seatedLeg
+    let rightLegTarget = swimming.current ? 0.55 - swimWave : lying.current ? -1.15 : moving ? -swing : seatedLeg
+    let leftArmTarget = swimming.current ? -0.92 + swimWave : lying.current ? -0.75 : moving ? -swing * 0.8 : sitting.current ? -0.58 : 0
+    let rightArmTarget = swimming.current ? -0.92 - swimWave : lying.current ? -0.75 : moving ? swing * 0.8 : sitting.current ? -0.58 : 0
+    let bodyRotX = swimming.current ? (diving.current ? -0.68 : -0.24) : lying.current ? -1.34 : sitting.current ? -0.06 : 0
+    let bodyRotZ = 0
+    let bodyY = swimming.current
+      ? 0.34 + Math.sin(phase.current * 1.15) * 0.025
+      : lying.current ? 0.25 : sitting.current ? 0.17 : moving ? Math.abs(Math.sin(phase.current)) * 0.05 : Math.sin(phase.current) * 0.012
+
+    // The avatar now performs a matching pose while the selected piece of gym equipment runs.
+    const exercise = arrived.current && !swimming.current ? workoutMode : null
+    const cycle = phase.current
+    if (exercise) {
+      const wave = Math.sin(cycle * 1.8)
+      switch (exercise) {
+        case 'treadmill':
+        case 'elliptical':
+        case 'stepper':
+          leftLegTarget = Math.sin(cycle * 1.45) * 0.78
+          rightLegTarget = -Math.sin(cycle * 1.45) * 0.78
+          leftArmTarget = -Math.sin(cycle * 1.45) * 0.38 - 0.12
+          rightArmTarget = Math.sin(cycle * 1.45) * 0.38 - 0.12
+          bodyRotX = 0.035
+          bodyY = 0.015 + Math.abs(Math.sin(cycle * 1.45)) * 0.055
+          break
+        case 'bike':
+          leftLegTarget = -0.82 + Math.sin(cycle * 1.65) * 0.42
+          rightLegTarget = -0.82 - Math.sin(cycle * 1.65) * 0.42
+          leftArmTarget = -0.72
+          rightArmTarget = -0.72
+          bodyRotX = -0.14
+          bodyY = 0.17 + Math.sin(cycle * 1.65) * 0.018
+          break
+        case 'rower': {
+          const pull = Math.sin(cycle * 1.25)
+          leftLegTarget = -0.98 + pull * 0.27
+          rightLegTarget = -0.98 + pull * 0.27
+          leftArmTarget = -0.72 - pull * 0.55
+          rightArmTarget = -0.72 - pull * 0.55
+          bodyRotX = -0.08 + pull * 0.2
+          bodyY = 0.16 + pull * 0.025
+          break
+        }
+        case 'chest-press': {
+          const press = (Math.sin(cycle * 1.5) + 1) * 0.5
+          leftLegTarget = -1.12
+          rightLegTarget = -1.12
+          leftArmTarget = -0.48 - press * 0.66
+          rightArmTarget = -0.48 - press * 0.66
+          bodyRotX = -0.09
+          bodyY = 0.17
+          break
+        }
+        case 'lat-pulldown': {
+          const pull = (Math.sin(cycle * 1.25) + 1) * 0.5
+          leftLegTarget = -1.12
+          rightLegTarget = -1.12
+          leftArmTarget = -1.45 - pull * 0.52
+          rightArmTarget = -1.45 - pull * 0.52
+          bodyRotX = 0.04 + pull * 0.08
+          bodyY = 0.17
+          break
+        }
+        case 'leg-press': {
+          const press = (Math.sin(cycle * 1.25) + 1) * 0.5
+          leftLegTarget = -1.55 + press * 0.72
+          rightLegTarget = -1.55 + press * 0.72
+          leftArmTarget = -0.62
+          rightArmTarget = -0.62
+          bodyRotX = -0.16
+          bodyY = 0.17
+          break
+        }
+        case 'punching-bag': {
+          const punchL = (Math.sin(cycle * 2.35) + 1) * 0.5
+          const punchR = (Math.sin(cycle * 2.35 + Math.PI) + 1) * 0.5
+          leftLegTarget = -0.12 + Math.sin(cycle * 1.2) * 0.14
+          rightLegTarget = 0.1 - Math.sin(cycle * 1.2) * 0.14
+          leftArmTarget = -0.58 - punchL * 1.0
+          rightArmTarget = -0.58 - punchR * 1.0
+          bodyRotX = -0.04
+          bodyRotZ = Math.sin(cycle * 2.35) * 0.1
+          bodyY = 0.015 + Math.abs(wave) * 0.025
+          break
+        }
+        case 'bench-press': {
+          const press = (Math.sin(cycle * 1.45) + 1) * 0.5
+          leftLegTarget = -1.12
+          rightLegTarget = -1.12
+          leftArmTarget = -1.45 + press * 0.42
+          rightArmTarget = -1.45 + press * 0.42
+          bodyRotX = -1.34
+          bodyY = 0.25
+          break
+        }
+        case 'yoga-mat': {
+          const breath = Math.sin(cycle * 0.5)
+          leftLegTarget = -1.08 + breath * 0.08
+          rightLegTarget = -1.08 - breath * 0.08
+          leftArmTarget = -0.78 + breath * 0.18
+          rightArmTarget = -0.78 - breath * 0.18
+          bodyRotX = -1.34
+          bodyY = 0.25 + Math.sin(cycle * 0.5) * 0.025
+          break
+        }
+      }
+    }
+
+    leftLeg.current!.rotation.x = THREE.MathUtils.lerp(leftLeg.current!.rotation.x, leftLegTarget, 0.22)
+    rightLeg.current!.rotation.x = THREE.MathUtils.lerp(rightLeg.current!.rotation.x, rightLegTarget, 0.22)
+    leftArm.current!.rotation.x = THREE.MathUtils.lerp(leftArm.current!.rotation.x, leftArmTarget, 0.22)
+    rightArm.current!.rotation.x = THREE.MathUtils.lerp(rightArm.current!.rotation.x, rightArmTarget, 0.22)
+    body.current!.rotation.x = THREE.MathUtils.lerp(body.current!.rotation.x, bodyRotX, 0.18)
+    body.current!.rotation.z = THREE.MathUtils.lerp(body.current!.rotation.z, bodyRotZ, 0.18)
+    body.current!.position.y = THREE.MathUtils.lerp(body.current!.position.y, bodyY, 0.2)
 
     if (controls) {
       const delta = g.position.clone().sub(prev.current)
@@ -468,7 +589,7 @@ export function RemoteAvatar({ player, onSelect }: { player: StudioPlayer; onSel
   )
 }
 
-export function TargetMarker({ target }: { target: THREE.Vector3 | null }) {
+export function TargetMarker({ target, underwater = false }: { target: THREE.Vector3 | null; underwater?: boolean }) {
   const ref = useRef<THREE.Mesh>(null)
   useFrame(({ clock }) => {
     if (!ref.current) return
@@ -477,9 +598,15 @@ export function TargetMarker({ target }: { target: THREE.Vector3 | null }) {
   })
   if (!target) return null
   return (
-    <mesh ref={ref} position={[target.x, 0.02, target.z]} rotation-x={-Math.PI / 2} raycast={() => null}>
-      <ringGeometry args={[0.18, 0.26, 32]} />
-      <meshBasicMaterial color={ACCENT} transparent opacity={0.9} toneMapped={false} />
-    </mesh>
+    <group position={[target.x, target.y + (underwater ? 0.06 : 0.025), target.z]} raycast={() => null}>
+      <mesh ref={ref} rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.25, 0.34, 40]} />
+        <meshBasicMaterial color={underwater ? '#72edff' : ACCENT} transparent opacity={0.95} toneMapped={false} />
+      </mesh>
+      <mesh position={[0, 0.025, 0]}>
+        <sphereGeometry args={[0.055, 12, 8]} />
+        <meshBasicMaterial color={underwater ? '#b8f9ff' : '#fff0bf'} toneMapped={false} />
+      </mesh>
+    </group>
   )
 }

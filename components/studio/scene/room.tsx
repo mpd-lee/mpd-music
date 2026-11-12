@@ -1,8 +1,8 @@
 'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
-import { RoundedBox, useTexture } from '@react-three/drei'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { RoundedBox } from '@react-three/drei'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { createWoodFloorTexture } from '@/lib/textures'
 import type { GraphicsTier } from '@/lib/graphics-quality'
@@ -132,74 +132,6 @@ function VaultedCeiling({ quality }: { quality: GraphicsTier }) {
   )
 }
 
-function buildFrontCoastArc(quality: GraphicsTier) {
-  const segments = quality === 'mobile' ? 28 : quality === 'balanced' ? 48 : 72
-  const rows = quality === 'mobile' ? 2 : 4
-  const radius = 98
-  const bottom = -26
-  const top = 123
-  const halfArc = Math.PI * 0.485 // 174.6 degrees: ocean and coastline stay in the forward view.
-  const positions: number[] = []
-  const uvs: number[] = []
-  const indices: number[] = []
-
-  for (let row = 0; row <= rows; row += 1) {
-    const v = row / rows
-    const y = bottom + (top - bottom) * v
-    for (let segment = 0; segment <= segments; segment += 1) {
-      const u = segment / segments
-      const angle = (u * 2 - 1) * halfArc
-      positions.push(Math.sin(angle) * radius, y, -Math.cos(angle) * radius)
-      uvs.push(u, v)
-    }
-  }
-
-  const stride = segments + 1
-  for (let row = 0; row < rows; row += 1) {
-    for (let segment = 0; segment < segments; segment += 1) {
-      const a = row * stride + segment
-      const b = a + 1
-      const c = a + stride
-      const d = c + 1
-      indices.push(a, c, b, b, c, d)
-    }
-  }
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
-  geometry.setIndex(indices)
-  geometry.computeVertexNormals()
-  geometry.computeBoundingSphere()
-  return geometry
-}
-
-function EnvironmentBackdrop({ quality }: { quality: GraphicsTier }) {
-  // One 2:1 coastal panorama is mapped onto a broad curved 174-degree screen
-  // facing the front glass. The rear 186 degrees are deliberately left open
-  // for the actual 3D forest, so no blurred photo strip wraps around the room.
-  const coast = useTexture(quality === 'mobile'
-    ? '/images/mpd-front-coastal-bay-mobile.webp'
-    : '/images/mpd-front-coastal-bay.webp')
-  const geometry = useMemo(() => buildFrontCoastArc(quality), [quality])
-
-  useEffect(() => {
-    coast.colorSpace = THREE.SRGBColorSpace
-    coast.wrapS = THREE.ClampToEdgeWrapping
-    coast.wrapT = THREE.ClampToEdgeWrapping
-    coast.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 8
-    coast.needsUpdate = true
-  }, [coast, quality])
-
-  return (
-    <>
-      {/* The photo arc supplies the real-looking sea and sky in the front view; the rear forest arc is rendered by Outdoor. */}
-      <mesh geometry={geometry} position={[0, 0, 0]} raycast={noRaycast} renderOrder={10}>
-        <meshBasicMaterial map={coast} side={THREE.DoubleSide} toneMapped={false} depthTest depthWrite={false} fog={false} />
-      </mesh>
-    </>
-  )
-}
 
 function StudioFoundation() {
   const buttresses = [
@@ -375,7 +307,6 @@ export function Room({ onFloorClick, quality = 'high' }: { onFloorClick: (e: Thr
       <GlassWall length={halfZ * 2} position={[halfX, 0, 0]} rotationY={Math.PI / 2} />
       <GlassWall length={halfZ * 2} position={[-halfX, 0, 0]} rotationY={Math.PI / 2} />
       {/* The coastal photograph supplies the real sky and sea horizon. The old full-screen Sky shader covered both photo backdrops. */}
-      <Suspense fallback={null}><EnvironmentBackdrop quality={quality} /></Suspense>
       <BackTableWithProps onTurnTableClick={toggleLP} onBottleClick={playDrinkSound} />
       <Plant position={[-11.2, 0, 8.2]} />
     </group>

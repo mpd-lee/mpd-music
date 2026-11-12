@@ -1,6 +1,6 @@
 'use client'
 
-import { RoundedBox, useTexture } from '@react-three/drei'
+import { RoundedBox } from '@react-three/drei'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
@@ -9,66 +9,12 @@ import { getIslandGroundHeight } from '@/lib/island-terrain'
 import { IslandTerrain } from './island-terrain'
 import type { GraphicsTier } from '@/lib/graphics-quality'
 import { Interactive } from './interactive'
+import type { FitnessKind } from '@/lib/studio-interactions'
 
 export const SUN_POSITION: [number, number, number] = [70, 45, 90]
 const noRaycast = () => null
 const UP = new THREE.Vector3(0, 1, 0)
 
-/**
- * A far-distance photographic forest arc closes the left, right and rear horizon.
- * The studio's separate 174-degree coastal bay arc remains in front, so the sea
- * is only ahead while this forest fills the other 200 degrees without a flat wall.
- */
-function buildForestArc() {
-  const segments = 72
-  const halfArc = Math.PI * (100 / 180)
-  const radius = 108
-  const bottom = -23
-  const top = 64
-  const positions: number[] = []
-  const uvs: number[] = []
-  const indices: number[] = []
-  for (let row = 0; row <= 1; row += 1) {
-    const y = bottom + (top - bottom) * row
-    for (let segment = 0; segment <= segments; segment += 1) {
-      const angle = -halfArc + (segment / segments) * halfArc * 2
-      positions.push(Math.sin(angle) * radius, y, -Math.cos(angle) * radius)
-      uvs.push(segment / segments, row)
-    }
-  }
-  const stride = segments + 1
-  for (let segment = 0; segment < segments; segment += 1) {
-    const a = segment
-    const b = a + 1
-    const c = a + stride
-    const d = c + 1
-    indices.push(a, c, b, b, c, d)
-  }
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
-  geometry.setIndex(indices)
-  geometry.computeVertexNormals()
-  geometry.computeBoundingSphere()
-  return geometry
-}
-
-function ForestBackdropArc({ quality }: { quality: GraphicsTier }) {
-  const forest = useTexture('/images/mpd-forest-photo.webp')
-  const geometry = useMemo(() => buildForestArc(), [])
-  useEffect(() => {
-    forest.colorSpace = THREE.SRGBColorSpace
-    forest.wrapS = THREE.ClampToEdgeWrapping
-    forest.wrapT = THREE.ClampToEdgeWrapping
-    forest.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 8
-    forest.needsUpdate = true
-  }, [forest, quality])
-  return (
-    <mesh geometry={geometry} raycast={noRaycast} renderOrder={10}>
-      <meshBasicMaterial map={forest} side={THREE.DoubleSide} toneMapped={false} depthWrite={false} fog={false} />
-    </mesh>
-  )
-}
 
 type SeatHandler = (position: [number, number, number], rotationY: number) => void
 
@@ -199,28 +145,6 @@ export function NaturalTree({ position, scale = 1, seed, quality = 'high' }: { p
 }
 
 
-function PineTree({ position, scale = 1, seed, quality }: { position: [number, number, number]; scale: number; seed: number; quality: GraphicsTier }) {
-  const trunkHeight = 6.4 + (seed % 5) * 0.42
-  const canopyTones = ['#244f3b', '#2f6044', '#3c704b']
-  return (
-    <group position={position} scale={scale}>
-      <mesh position={[0, trunkHeight * 0.48, 0]} raycast={noRaycast} castShadow={quality === 'high'}>
-        <cylinderGeometry args={[0.13, 0.38, trunkHeight, quality === 'mobile' ? 8 : 12, 5]} />
-        <meshStandardMaterial color="#634832" roughness={0.98} />
-      </mesh>
-      {Array.from({ length: 4 }, (_, index) => {
-        const y = trunkHeight * (0.43 + index * 0.145)
-        const radius = 1.55 - index * 0.27 + ((seed + index * 3) % 4) * 0.08
-        return (
-          <mesh key={index} position={[(index % 2 ? 0.08 : -0.06), y, (index % 3 - 1) * 0.06]} rotation-y={(seed % 7) * 0.12 + index * 0.42} scale={[radius, 1.5 - index * 0.13, radius * 0.92]} raycast={noRaycast} castShadow={quality === 'high'}>
-            <sphereGeometry args={[1, quality === 'mobile' ? 12 : 18, quality === 'mobile' ? 9 : 14]} />
-            <meshStandardMaterial color={canopyTones[(seed + index) % canopyTones.length]} roughness={0.96} />
-          </mesh>
-        )
-      })}
-    </group>
-  )
-}
 
 function PalmTree({ position, scale = 1, seed, quality }: { position: [number, number, number]; scale: number; seed: number; quality: GraphicsTier }) {
   const fronds = quality === 'mobile' ? 5 : 8
@@ -260,7 +184,7 @@ function PalmTree({ position, scale = 1, seed, quality }: { position: [number, n
 function ForestTree({ position, scale, seed, quality }: { position: [number, number, number]; scale: number; seed: number; quality: GraphicsTier }) {
   const species = seed % 7
   if (species === 0 || species === 4) return <PalmTree position={position} scale={scale} seed={seed} quality={quality} />
-  if (species === 2 || species === 5) return <PineTree position={position} scale={scale} seed={seed} quality={quality} />
+  // Keep the near-field planting to broadleaf trees; the continuous 360 panorama supplies distant forest.
   return <NaturalTree position={position} scale={scale} seed={seed} quality={quality} />
 }
 
@@ -290,8 +214,6 @@ function Understory({ position, seed, quality }: { position: [number, number, nu
     </group>
   )
 }
-
-type FitnessKind = 'treadmill' | 'bike' | 'elliptical' | 'rower' | 'stepper' | 'chest-press' | 'lat-pulldown' | 'leg-press' | 'punching-bag' | 'bench-press' | 'yoga-mat'
 
 function FitnessStation({
   position, kind, label, onSeat, onRest, onStand,
@@ -345,7 +267,7 @@ function FitnessStation({
   })
 
   const activate = () => {
-    // Stop any previously used station; this click then activates only the selected machine.
+    // Stop every previously selected station first.
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     // The parent garden group performs the 180-degree world transform in worldSeat().
     const usePosition: [number, number, number] = [position[0], 0, position[2] + 1.25]
@@ -354,10 +276,13 @@ function FitnessStation({
       onStand(usePosition, 0)
       return
     }
-    setActive(true)
+    // Let the travel callback finish its stop/reset work before publishing the
+    // new workout state; otherwise the seat callback would immediately cancel it.
     if (kind === 'bench-press' || kind === 'yoga-mat') onRest(usePosition, 0)
     else if (kind === 'treadmill' || kind === 'elliptical' || kind === 'stepper' || kind === 'punching-bag') onStand(usePosition, 0)
     else onSeat(usePosition, 0)
+    setActive(true)
+    window.dispatchEvent(new CustomEvent('mpd-start-fitness', { detail: { kind } }))
   }
 
   return (
@@ -821,8 +746,8 @@ function ShoreBoulder({ position, scale, tint }: { position: [number, number, nu
 export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high' }: { onPathClick: (e: ThreeEvent<MouseEvent>) => void; onSeat: SeatHandler; onRest: SeatHandler; onStand: SeatHandler; quality?: GraphicsTier }) {
   // Dense mixed-species 3D forest. The front-center bay remains open for the ocean view;
   // the rear half and both side flanks are planted with broadleaf, pine and palm trees.
-  const rearTreeCount = quality === 'mobile' ? 5 : quality === 'balanced' ? 9 : 14
-  const flankTreeCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 3 : 4
+  const rearTreeCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 6
+  const flankTreeCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 2 : 3
   const trees = [
     ...Array.from({ length: rearTreeCount }, (_, index) => {
       const t = (index + 0.5) / rearTreeCount
@@ -849,7 +774,7 @@ export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high'
       }
     }),
   ]
-  const undergrowthCount = quality === 'mobile' ? 3 : quality === 'balanced' ? 6 : 9
+  const undergrowthCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 6
   const undergrowth = Array.from({ length: undergrowthCount }, (_, index) => {
     const angle = ((index * 2.399963) % (Math.PI * 2))
     const radius = 20 + ((index * 13) % 40)
@@ -891,7 +816,6 @@ export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high'
 
   return (
     <group rotation-y={Math.PI}>
-      <ForestBackdropArc quality={quality} />
       <IslandTerrain quality={quality} onPathClick={onPathClick} />
       <Pool onPathClick={onPathClick} quality={quality} />
       {tablePositions.map((position, index) => <DiningTable key={index} position={position} index={index} onSeat={worldSeat} />)}
