@@ -175,6 +175,7 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
   const texture = useMemo(() => createUnderwaterPanorama(quality), [quality])
   const geometry = useMemo(() => new THREE.SphereGeometry(92, quality === 'mobile' ? 32 : 48, quality === 'mobile' ? 20 : 32), [quality])
   useEffect(() => () => { texture?.dispose() }, [texture])
+  useEffect(() => () => geometry.dispose(), [geometry])
   return (
     <mesh geometry={geometry} raycast={noRaycast} renderOrder={-10} rotation-y={Math.PI * 0.5}>
       <meshBasicMaterial map={texture ?? undefined} side={THREE.BackSide} fog={false} depthWrite={false} toneMapped={false} />
@@ -460,6 +461,7 @@ function LightShafts({ quality }: { quality: GraphicsTier }) {
 
 function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: (event: ThreeEvent<MouseEvent>) => void }) {
   const texture = useMemo(() => createSeabedTexture(), [])
+  useEffect(() => () => { texture?.dispose() }, [texture])
   useEffect(() => {
     if (texture) {
       texture.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 6 : 10
@@ -479,6 +481,7 @@ function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: 
     plane.computeVertexNormals()
     return plane
   }, [quality])
+  useEffect(() => () => geometry.dispose(), [geometry])
   return (
     <mesh geometry={geometry} position={[0, -5.35, 0]} rotation-x={-Math.PI / 2} onClick={onPathClick} receiveShadow>
       <meshStandardMaterial map={texture ?? undefined} color="#ffffff" roughness={0.98} metalness={0} />

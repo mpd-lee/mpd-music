@@ -6,10 +6,10 @@ export const GRAPHICS_PRESETS: Record<GraphicsTier, {
   antialias: boolean
   environment: boolean
 }> = {
-  // Phone/tablet: prioritize responsive movement and fast first entry.
-  mobile:   { dpr: 0.88, shadows: false, antialias: true, environment: false },
+  // Start at native-ish resolution for sharp text and edges. The frame guard can reduce DPR only if needed.
+  mobile:   { dpr: 1.0, shadows: false, antialias: true, environment: false },
   // Mid-range laptop / integrated graphics.
-  balanced: { dpr: 0.92, shadows: false, antialias: true, environment: false },
+  balanced: { dpr: 1.05, shadows: false, antialias: true, environment: false },
   // Desktop workstation.
-  high:     { dpr: 1.12, shadows: true,  antialias: true,  environment: true },
+  high:     { dpr: 1.2, shadows: true, antialias: true, environment: true },
 }

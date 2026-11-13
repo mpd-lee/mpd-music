@@ -91,8 +91,8 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   useEffect(() => {
     if (!controls || !root.current) return
     const pos = root.current.position
-    controls.target.set(pos.x, 1.9, pos.z)
-    camera.position.set(pos.x, 2.75, pos.z + 6.5)
+    controls.target.set(pos.x, pos.y + 2.35, pos.z)
+    camera.position.set(pos.x, pos.y + 3.0, pos.z + 7.2)
     controls.update()
   }, [resetKey, controls, camera])
 
@@ -183,19 +183,29 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       const waypoint = route.current[routeIndex.current] ?? target
       const dx = waypoint.x - g.position.x
       const dz = waypoint.z - g.position.z
-      const dist = Math.hypot(dx, dz)
+      const dy = underwaterMode ? waypoint.y - g.position.y : 0
+      // Underwater destinations use true 3D distance. A click directly above/below
+      // the diver therefore produces a smooth vertical swim instead of a teleport.
+      const dist = underwaterMode ? Math.hypot(dx, dy, dz) : Math.hypot(dx, dz)
       if (dist > 0.055) {
         moving = true
-        const desired = Math.atan2(dx, dz)
-        let diff = desired - g.rotation.y
-        diff = Math.atan2(Math.sin(diff), Math.cos(diff))
-        g.rotation.y += diff * Math.min(1, dt * 10)
+        if (Math.hypot(dx, dz) > 0.02) {
+          const desired = Math.atan2(dx, dz)
+          let diff = desired - g.rotation.y
+          diff = Math.atan2(Math.sin(diff), Math.cos(diff))
+          g.rotation.y += diff * Math.min(1, dt * 10)
+        }
         // Keep click-to-move responsive while the avatar smoothly turns toward the destination.
-        const moveSpeed = swimming.current && g.position.y < -0.8 ? 3.05 : swimming.current ? 3.35 : SPEED
+        const moveSpeed = underwaterMode ? 3.05 : swimming.current && g.position.y < -0.8 ? 3.05 : swimming.current ? 3.35 : SPEED
         const step = Math.min(dist, moveSpeed * dt)
         g.position.x += (dx / dist) * step
         g.position.z += (dz / dist) * step
-        g.position.y = THREE.MathUtils.lerp(g.position.y, waypoint.y, Math.min(1, dt * 5.5))
+        if (underwaterMode) {
+          g.position.y += (dy / dist) * step
+          underwaterDepthRef.current = g.position.y
+        } else {
+          g.position.y = THREE.MathUtils.lerp(g.position.y, waypoint.y, Math.min(1, dt * 5.5))
+        }
       } else if (routeIndex.current < route.current.length - 1) {
         routeIndex.current += 1
       } else {

@@ -15,7 +15,6 @@ export const SUN_POSITION: [number, number, number] = [70, 45, 90]
 const noRaycast = () => null
 const UP = new THREE.Vector3(0, 1, 0)
 
-
 type SeatHandler = (position: [number, number, number], rotationY: number) => void
 
 function seeded(seed: number) {
@@ -145,7 +144,6 @@ export function NaturalTree({ position, scale = 1, seed, quality = 'high' }: { p
 }
 
 
-
 function PalmTree({ position, scale = 1, seed, quality }: { position: [number, number, number]; scale: number; seed: number; quality: GraphicsTier }) {
   const fronds = quality === 'mobile' ? 5 : 8
   const height = 7.1 + (seed % 4) * 0.55
@@ -182,9 +180,10 @@ function PalmTree({ position, scale = 1, seed, quality }: { position: [number, n
 }
 
 function ForestTree({ position, scale, seed, quality }: { position: [number, number, number]; scale: number; seed: number; quality: GraphicsTier }) {
-  const species = seed % 7
-  if (species === 0 || species === 4) return <PalmTree position={position} scale={scale} seed={seed} quality={quality} />
-  // Keep the near-field planting to broadleaf trees; the continuous 360 panorama supplies distant forest.
+  // Use branching broadleaf trees for the forest mass. Only a few palms break the skyline;
+  // the old stacked-sphere pine cones were removed because they looked like toy scenery.
+  const species = seed % 9
+  if (species === 0 || species === 5) return <PalmTree position={position} scale={scale} seed={seed} quality={quality} />
   return <NaturalTree position={position} scale={scale} seed={seed} quality={quality} />
 }
 
@@ -226,12 +225,27 @@ function FitnessStation({
   onStand: SeatHandler
 }) {
   const [active, setActive] = useState(false)
+  const pendingStart = useRef(false)
   const moving = useRef<THREE.Group>(null)
   useEffect(() => {
-    const stop = () => setActive(false)
+    const stop = () => {
+      pendingStart.current = false
+      setActive(false)
+    }
+    const arrived = (event: Event) => {
+      const detail = (event as CustomEvent<{ kind?: FitnessKind }>).detail
+      if (pendingStart.current && detail?.kind === kind) {
+        pendingStart.current = false
+        setActive(true)
+      }
+    }
     window.addEventListener('mpd-stop-fitness-machines', stop)
-    return () => window.removeEventListener('mpd-stop-fitness-machines', stop)
-  }, [])
+    window.addEventListener('mpd-fitness-arrived', arrived)
+    return () => {
+      window.removeEventListener('mpd-stop-fitness-machines', stop)
+      window.removeEventListener('mpd-fitness-arrived', arrived)
+    }
+  }, [kind])
   const wheel = useRef<THREE.Mesh>(null)
   const pedal = useRef<THREE.Group>(null)
   const seat = useRef<THREE.Group>(null)
@@ -267,21 +281,20 @@ function FitnessStation({
   })
 
   const activate = () => {
-    // Stop every previously selected station first.
-    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
-    // The parent garden group performs the 180-degree world transform in worldSeat().
+    // Toggle off if this station is already running or the avatar is still walking to it.
+    const wasActive = active || pendingStart.current
     const usePosition: [number, number, number] = [position[0], 0, position[2] + 1.25]
-    if (active) {
-      setActive(false)
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+    if (wasActive) {
       onStand(usePosition, 0)
       return
     }
-    // Let the travel callback finish its stop/reset work before publishing the
-    // new workout state; otherwise the seat callback would immediately cancel it.
+    // The character walks to the correct exercise position first. The selected machine
+    // starts only when Avatar reports arrival, in sync with the matching body animation.
     if (kind === 'bench-press' || kind === 'yoga-mat') onRest(usePosition, 0)
     else if (kind === 'treadmill' || kind === 'elliptical' || kind === 'stepper' || kind === 'punching-bag') onStand(usePosition, 0)
     else onSeat(usePosition, 0)
-    setActive(true)
+    pendingStart.current = true
     window.dispatchEvent(new CustomEvent('mpd-start-fitness', { detail: { kind } }))
   }
 
@@ -744,10 +757,10 @@ function ShoreBoulder({ position, scale, tint }: { position: [number, number, nu
 }
 
 export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high' }: { onPathClick: (e: ThreeEvent<MouseEvent>) => void; onSeat: SeatHandler; onRest: SeatHandler; onStand: SeatHandler; quality?: GraphicsTier }) {
-  // Dense mixed-species 3D forest. The front-center bay remains open for the ocean view;
-  // the rear half and both side flanks are planted with broadleaf, pine and palm trees.
-  const rearTreeCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 6
-  const flankTreeCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 2 : 3
+  // Layered 3D broadleaf forest with a few palms. The front-center bay remains open for the ocean view;
+  // the rear half and both side flanks are planted in staggered rows, with no flat photo wall.
+  const rearTreeCount = quality === 'mobile' ? 6 : quality === 'balanced' ? 9 : 13
+  const flankTreeCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 3 : 4
   const trees = [
     ...Array.from({ length: rearTreeCount }, (_, index) => {
       const t = (index + 0.5) / rearTreeCount
@@ -774,7 +787,7 @@ export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high'
       }
     }),
   ]
-  const undergrowthCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 6
+  const undergrowthCount = quality === 'mobile' ? 4 : quality === 'balanced' ? 6 : 9
   const undergrowth = Array.from({ length: undergrowthCount }, (_, index) => {
     const angle = ((index * 2.399963) % (Math.PI * 2))
     const radius = 20 + ((index * 13) % 40)
@@ -809,10 +822,17 @@ export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high'
     return { position: [x, getIslandGroundHeight(x, z) - 0.2, z] as [number, number, number], scale: [size * 1.25, size * 0.7, size] as [number, number, number], tint: colors[index % colors.length] }
   })
 
-  const worldSeat = (position: [number, number, number], rotationY: number) => {
-    // The resort is on the +Z side of the studio after the 180° room flip.
-    onSeat([-position[0], position[1], -position[2]], rotationY + Math.PI)
-  }
+  const toWorldPosition = (position: [number, number, number]): [number, number, number] => [
+    -position[0], position[1], -position[2],
+  ]
+  // Keep the requested body action intact while converting garden-local coordinates
+  // through the 180-degree Outdoor group rotation.
+  const worldSeat = (position: [number, number, number], rotationY: number) =>
+    onSeat(toWorldPosition(position), rotationY + Math.PI)
+  const worldRest = (position: [number, number, number], rotationY: number) =>
+    onRest(toWorldPosition(position), rotationY + Math.PI)
+  const worldStand = (position: [number, number, number], rotationY: number) =>
+    onStand(toWorldPosition(position), rotationY + Math.PI)
 
   return (
     <group rotation-y={Math.PI}>
@@ -823,18 +843,18 @@ export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high'
       {trees.map((tree) => <ForestTree key={tree.seed} {...tree} quality={quality} />)}
       {undergrowth.map((plant) => <Understory key={plant.seed} {...plant} quality={quality} />)}
       {boulders.map((rock, index) => <ShoreBoulder key={`shore-rock-${index}`} {...rock} />)}
-      <FitnessStation position={[-17.5, getIslandGroundHeight(-17.5, -3.5), -3.5]} kind="treadmill" label="러닝머신" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[17.5, getIslandGroundHeight(17.5, -3.5), -3.5]} kind="bike" label="실내 자전거" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[-20.5, getIslandGroundHeight(-20.5, 5), 5]} kind="elliptical" label="일립티컬" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[20.5, getIslandGroundHeight(20.5, 5), 5]} kind="rower" label="로잉 머신" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      {/* 추가 운동기구 7종: 클릭 즉시 해당 기구로 이동·착석하고 구동 애니메이션을 시작합니다. */}
-      <FitnessStation position={[-25.5, getIslandGroundHeight(-25.5, -10), -10]} kind="stepper" label="스텝퍼" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[25.5, getIslandGroundHeight(25.5, -10), -10]} kind="chest-press" label="체스트 프레스" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[-28, getIslandGroundHeight(-28, 3), 3]} kind="lat-pulldown" label="랫 풀다운" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[28, getIslandGroundHeight(28, 3), 3]} kind="leg-press" label="레그 프레스" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[-25, getIslandGroundHeight(-25, 13), 13]} kind="punching-bag" label="샌드백 복싱" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[25, getIslandGroundHeight(25, 13), 13]} kind="bench-press" label="벤치 프레스" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
-      <FitnessStation position={[0, getIslandGroundHeight(0, 31), 31]} kind="yoga-mat" label="요가·스트레칭 매트" onSeat={worldSeat} onRest={worldSeat} onStand={worldSeat} />
+      <FitnessStation position={[-17.5, getIslandGroundHeight(-17.5, -3.5), -3.5]} kind="treadmill" label="러닝머신" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[17.5, getIslandGroundHeight(17.5, -3.5), -3.5]} kind="bike" label="실내 자전거" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[-20.5, getIslandGroundHeight(-20.5, 5), 5]} kind="elliptical" label="일립티컬" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[20.5, getIslandGroundHeight(20.5, 5), 5]} kind="rower" label="로잉 머신" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      {/* 추가 운동기구 7종: 선택하면 해당 위치로 이동한 뒤 기구와 캐릭터 동작이 함께 시작합니다. */}
+      <FitnessStation position={[-25.5, getIslandGroundHeight(-25.5, -10), -10]} kind="stepper" label="스텝퍼" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[25.5, getIslandGroundHeight(25.5, -10), -10]} kind="chest-press" label="체스트 프레스" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[-28, getIslandGroundHeight(-28, 3), 3]} kind="lat-pulldown" label="랫 풀다운" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[28, getIslandGroundHeight(28, 3), 3]} kind="leg-press" label="레그 프레스" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[-25, getIslandGroundHeight(-25, 13), 13]} kind="punching-bag" label="샌드백 복싱" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[25, getIslandGroundHeight(25, 13), 13]} kind="bench-press" label="벤치 프레스" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
+      <FitnessStation position={[0, getIslandGroundHeight(0, 31), 31]} kind="yoga-mat" label="요가·스트레칭 매트" onSeat={worldSeat} onRest={worldRest} onStand={worldStand} />
     </group>
   )
 }

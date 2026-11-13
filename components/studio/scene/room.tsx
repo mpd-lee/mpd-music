@@ -1,11 +1,12 @@
 'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
-import { RoundedBox } from '@react-three/drei'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { RoundedBox, Sky, useTexture } from '@react-three/drei'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { createWoodFloorTexture } from '@/lib/textures'
 import type { GraphicsTier } from '@/lib/graphics-quality'
+import { createHorizontalEdgeFadeTexture } from '@/lib/background-blend'
 
 export const ROOM = { halfX: 12, halfZ: 9, height: 8 }
 const GLASS_TOP = 7.55
@@ -132,6 +133,79 @@ function VaultedCeiling({ quality }: { quality: GraphicsTier }) {
   )
 }
 
+function buildFrontCoastArc(quality: GraphicsTier) {
+  const segments = quality === 'mobile' ? 28 : quality === 'balanced' ? 48 : 72
+  const rows = quality === 'mobile' ? 2 : 4
+  const radius = 98
+  const bottom = -26
+  const top = 123
+  const halfArc = Math.PI * 0.485 // 174.6 degrees: ocean and coastline stay in the forward view.
+  const positions: number[] = []
+  const uvs: number[] = []
+  const indices: number[] = []
+
+  for (let row = 0; row <= rows; row += 1) {
+    const v = row / rows
+    const y = bottom + (top - bottom) * v
+    for (let segment = 0; segment <= segments; segment += 1) {
+      const u = segment / segments
+      const angle = (u * 2 - 1) * halfArc
+      positions.push(Math.sin(angle) * radius, y, -Math.cos(angle) * radius)
+      uvs.push(u, v)
+    }
+  }
+
+  const stride = segments + 1
+  for (let row = 0; row < rows; row += 1) {
+    for (let segment = 0; segment < segments; segment += 1) {
+      const a = row * stride + segment
+      const b = a + 1
+      const c = a + stride
+      const d = c + 1
+      indices.push(a, c, b, b, c, d)
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+function EnvironmentBackdrop({ quality }: { quality: GraphicsTier }) {
+  // One 2:1 coastal panorama is mapped onto a broad curved 174-degree screen
+  // facing the front glass. The rear 186 degrees are deliberately left open
+  // for the actual 3D forest, so no blurred photo strip wraps around the room.
+  const coast = useTexture(quality === 'mobile'
+    ? '/images/mpd-front-coastal-bay-mobile.webp'
+    : '/images/mpd-front-coastal-bay.webp')
+  const geometry = useMemo(() => buildFrontCoastArc(quality), [quality])
+  const edgeFade = useMemo(() => createHorizontalEdgeFadeTexture(256, 0.12), [])
+
+  useEffect(() => () => geometry.dispose(), [geometry])
+
+  useEffect(() => {
+    coast.colorSpace = THREE.SRGBColorSpace
+    coast.wrapS = THREE.ClampToEdgeWrapping
+    coast.wrapT = THREE.ClampToEdgeWrapping
+    coast.anisotropy = quality === 'mobile' ? 4 : quality === 'balanced' ? 8 : 12
+    coast.needsUpdate = true
+  }, [coast, quality])
+
+  useEffect(() => () => edgeFade.dispose(), [edgeFade])
+
+  return (
+    <>
+      {/* A continuous procedural sky remains behind the coastal arc. The alpha-feathered edges blend into the sky and real 3D trees. */}
+      <mesh geometry={geometry} position={[0, 0, 0]} raycast={noRaycast} renderOrder={0}>
+        <meshBasicMaterial map={coast} alphaMap={edgeFade} side={THREE.DoubleSide} transparent alphaTest={0.008} toneMapped={false} depthWrite={false} depthTest fog={false} />
+      </mesh>
+    </>
+  )
+}
 
 function StudioFoundation() {
   const buttresses = [
@@ -306,7 +380,9 @@ export function Room({ onFloorClick, quality = 'high' }: { onFloorClick: (e: Thr
       <OceanGlassWall length={halfX * 2} />
       <GlassWall length={halfZ * 2} position={[halfX, 0, 0]} rotationY={Math.PI / 2} />
       <GlassWall length={halfZ * 2} position={[-halfX, 0, 0]} rotationY={Math.PI / 2} />
-      {/* The coastal photograph supplies the real sky and sea horizon. The old full-screen Sky shader covered both photo backdrops. */}
+      {/* The procedural sky is mounted outside the texture Suspense boundary so it is always visible, even while the coast panorama loads. */}
+      <Sky distance={350000} sunPosition={[80, 42, -35]} turbidity={6.5} rayleigh={2.4} mieCoefficient={0.0045} mieDirectionalG={0.82} />
+      <Suspense fallback={null}><EnvironmentBackdrop quality={quality} /></Suspense>
       <BackTableWithProps onTurnTableClick={toggleLP} onBottleClick={playDrinkSound} />
       <Plant position={[-11.2, 0, 8.2]} />
     </group>
