@@ -136,7 +136,7 @@ function VaultedCeiling({ quality }: { quality: GraphicsTier }) {
 function buildFrontCoastArc(quality: GraphicsTier) {
   const segments = quality === 'mobile' ? 28 : quality === 'balanced' ? 48 : 72
   const rows = quality === 'mobile' ? 2 : 4
-  const radius = 98
+  const radius = 108
   const bottom = -26
   const top = 123
   const halfArc = Math.PI * 0.485 // 174.6 degrees: ocean and coastline stay in the forward view.

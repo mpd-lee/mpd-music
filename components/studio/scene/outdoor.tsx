@@ -1,6 +1,6 @@
 'use client'
 
-import { RoundedBox } from '@react-three/drei'
+import { Html, RoundedBox } from '@react-three/drei'
 import { useFrame, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
@@ -55,13 +55,13 @@ function getSharedBarkTexture() {
 function LeafCanopy({ seed, height, quality }: { seed: number; height: number; quality: GraphicsTier }) {
   const leavesRef = useRef<THREE.InstancedMesh>(null)
   const leafGeometry = useMemo(() => createLeafGeometry(), [])
-  const leafCount = quality === 'mobile' ? 18 : quality === 'balanced' ? 48 : 96
+  const leafCount = quality === 'mobile' ? 28 : quality === 'balanced' ? 76 : 136
   const leaves = useMemo(() => {
     const rand = seeded(seed)
     return Array.from({ length: leafCount }, () => {
       const angle = rand() * Math.PI * 2
-      const radial = Math.sqrt(rand()) * (2.1 + rand() * 0.95)
-      const vertical = (rand() - 0.5) * 3.2
+      const radial = Math.sqrt(rand()) * (2.35 + rand() * 1.45)
+      const vertical = (rand() - 0.5) * 4.25
       const x = Math.cos(angle) * radial
       const z = Math.sin(angle) * radial * 0.88
       const y = height + vertical - radial * 0.1
@@ -72,7 +72,7 @@ function LeafCanopy({ seed, height, quality }: { seed: number; height: number; q
           angle + (rand() - 0.5) * 1.7,
           (rand() - 0.5) * 0.9,
         ] as [number, number, number],
-        scale: [0.105 + rand() * 0.105, 0.035 + rand() * 0.035, 0.22 + rand() * 0.22] as [number, number, number],
+        scale: [0.13 + rand() * 0.15, 0.045 + rand() * 0.055, 0.27 + rand() * 0.3] as [number, number, number],
         color: (() => {
           const palette = seed % 6
           const hueBase = palette === 0 ? 0.075 : palette === 1 ? 0.225 : palette === 2 ? 0.285 : palette === 3 ? 0.315 : 0.265
@@ -283,17 +283,34 @@ function FitnessStation({
   const activate = () => {
     // Toggle off if this station is already running or the avatar is still walking to it.
     const wasActive = active || pendingStart.current
-    const usePosition: [number, number, number] = [position[0], 0, position[2] + 1.25]
+    // Each avatar target is placed on the actual working surface/seat, not a generic
+    // 1.25m away point. Local +Z is the front of the station after the garden rotation.
+    const approachByKind: Record<FitnessKind, number> = {
+      treadmill: 0.38,
+      bike: 0.34,
+      elliptical: 0.28,
+      rower: 0.08,
+      stepper: 0.28,
+      'chest-press': 0.38,
+      'lat-pulldown': 0.12,
+      'leg-press': 0.48,
+      'punching-bag': 0.72,
+      'bench-press': 0.18,
+      'yoga-mat': 0,
+    }
+    const usePosition: [number, number, number] = [position[0], position[1], position[2] + approachByKind[kind]]
+    // Machines face local +Z in the avatar coordinate system. Outdoor rotates 180°,
+    // so the wrapper converts this to the correct world-facing heading.
+    const machineFacing = Math.PI
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     if (wasActive) {
-      onStand(usePosition, 0)
+      onStand(usePosition, machineFacing)
       return
     }
-    // The character walks to the correct exercise position first. The selected machine
-    // starts only when Avatar reports arrival, in sync with the matching body animation.
-    if (kind === 'bench-press' || kind === 'yoga-mat') onRest(usePosition, 0)
-    else if (kind === 'treadmill' || kind === 'elliptical' || kind === 'stepper' || kind === 'punching-bag') onStand(usePosition, 0)
-    else onSeat(usePosition, 0)
+    // Start the machine only after the avatar arrives at its exact working position.
+    if (kind === 'bench-press' || kind === 'yoga-mat') onRest(usePosition, machineFacing)
+    else if (kind === 'treadmill' || kind === 'elliptical' || kind === 'stepper' || kind === 'punching-bag') onStand(usePosition, machineFacing)
+    else onSeat(usePosition, machineFacing)
     pendingStart.current = true
     window.dispatchEvent(new CustomEvent('mpd-start-fitness', { detail: { kind } }))
   }
@@ -305,6 +322,17 @@ function FitnessStation({
       position={position}
       onActivate={activate}
     >
+      {/* A dedicated invisible hit volume makes every station clickable even when
+          its decorative meshes intentionally disable raycasting for performance. */}
+      <mesh position={[0, 1.35, 0]}>
+        <boxGeometry args={[3.35, 3.25, 3.1]} />
+        <meshBasicMaterial transparent opacity={0} colorWrite={false} depthWrite={false} />
+      </mesh>
+      <Html position={[0, kind === 'punching-bag' ? 3.25 : 2.95, 0]} center distanceFactor={10} style={{ pointerEvents: 'none' }} zIndexRange={[12, 0]}>
+        <div className="whitespace-nowrap rounded-full border border-amber-200/35 bg-slate-950/80 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-amber-100 shadow-lg backdrop-blur-sm">
+          {label}
+        </div>
+      </Html>
       <group ref={moving}>
         {(kind === 'treadmill' || kind === 'bike' || kind === 'elliptical' || kind === 'rower') && (
           <>
@@ -759,14 +787,15 @@ function ShoreBoulder({ position, scale, tint }: { position: [number, number, nu
 export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high' }: { onPathClick: (e: ThreeEvent<MouseEvent>) => void; onSeat: SeatHandler; onRest: SeatHandler; onStand: SeatHandler; quality?: GraphicsTier }) {
   // Layered 3D broadleaf forest with a few palms. The front-center bay remains open for the ocean view;
   // the rear half and both side flanks are planted in staggered rows, with no flat photo wall.
-  const rearTreeCount = quality === 'mobile' ? 6 : quality === 'balanced' ? 9 : 13
-  const flankTreeCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 3 : 4
+  const rearTreeCount = quality === 'mobile' ? 9 : quality === 'balanced' ? 15 : 22
+  const flankTreeCount = quality === 'mobile' ? 3 : quality === 'balanced' ? 5 : 7
+  const outerSideTreeCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 6
   const trees = [
     ...Array.from({ length: rearTreeCount }, (_, index) => {
       const t = (index + 0.5) / rearTreeCount
       const angle = Math.PI + t * Math.PI
       const jitter = Math.sin((index + 1) * 7.31) * 2.2
-      const radius = 24 + ((index * 11) % 8) * 3.35 + jitter
+      const radius = 27 + ((index * 11) % 10) * 3.15 + jitter
       const x = Math.cos(angle) * radius
       const z = Math.sin(angle) * radius
       return {
@@ -778,16 +807,31 @@ export function Outdoor({ onPathClick, onSeat, onRest, onStand, quality = 'high'
     ...Array.from({ length: flankTreeCount * 2 }, (_, index) => {
       const side = index < flankTreeCount ? -1 : 1
       const localIndex = index % flankTreeCount
-      const x = side * (19.5 + localIndex * 0.92 + (localIndex % 2) * 0.55)
-      const z = 22 - localIndex * 3.15
+      const x = side * (31 + localIndex * 1.2 + (localIndex % 2) * 0.45)
+      const z = 38 - localIndex * 5.0
       return {
         position: [x, getIslandGroundHeight(x, z), z] as [number, number, number],
-        scale: 0.82 + ((index * 7) % 6) * 0.1,
+        scale: 0.9 + ((index * 7) % 6) * 0.1,
         seed: 980 + index * 19,
       }
     }),
+    // A second staggered side belt fills the open white wedges seen from the room
+    // and from the pool. It stays outside the walking/gym area and is fully 3D.
+    ...Array.from({ length: outerSideTreeCount * 2 }, (_, index) => {
+      const side = index < outerSideTreeCount ? -1 : 1
+      const localIndex = index % outerSideTreeCount
+      const row = Math.floor(localIndex / 3)
+      const column = localIndex % 3
+      const x = side * (41 + row * 5.5 + (column % 2) * 0.8)
+      const z = 40 - column * 22 + row * 3.2
+      return {
+        position: [x, getIslandGroundHeight(x, z), z] as [number, number, number],
+        scale: 0.92 + ((index * 5) % 6) * 0.11,
+        seed: 1780 + index * 29,
+      }
+    }),
   ]
-  const undergrowthCount = quality === 'mobile' ? 4 : quality === 'balanced' ? 6 : 9
+  const undergrowthCount = quality === 'mobile' ? 8 : quality === 'balanced' ? 15 : 25
   const undergrowth = Array.from({ length: undergrowthCount }, (_, index) => {
     const angle = ((index * 2.399963) % (Math.PI * 2))
     const radius = 20 + ((index * 13) % 40)

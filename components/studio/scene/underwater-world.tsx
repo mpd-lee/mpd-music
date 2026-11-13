@@ -49,7 +49,7 @@ function createSeabedTexture() {
   texture.colorSpace = THREE.SRGBColorSpace
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(7, 7)
+  texture.repeat.set(14, 14)
   texture.anisotropy = 4
   return texture
 }
@@ -67,11 +67,11 @@ function createUnderwaterPanorama(quality: GraphicsTier) {
   if (!ctx) return null
 
   const water = ctx.createLinearGradient(0, 0, 0, height)
-  water.addColorStop(0, '#48aab9')
-  water.addColorStop(0.16, '#167e9d')
-  water.addColorStop(0.44, '#075675')
-  water.addColorStop(0.74, '#063953')
-  water.addColorStop(1, '#031d34')
+  water.addColorStop(0, '#72c7c8')
+  water.addColorStop(0.12, '#238eaa')
+  water.addColorStop(0.38, '#0b617f')
+  water.addColorStop(0.70, '#06435f')
+  water.addColorStop(1, '#03283f')
   ctx.fillStyle = water
   ctx.fillRect(0, 0, width, height)
 
@@ -123,9 +123,9 @@ function createUnderwaterPanorama(quality: GraphicsTier) {
     ctx.closePath()
     ctx.fill()
   }
-  drawRidge(horizon + height * 0.015, height * 0.032, 0.7, '#0a5368')
-  drawRidge(horizon + height * 0.075, height * 0.05, 1.8, '#073d54')
-  drawRidge(horizon + height * 0.15, height * 0.055, 2.5, '#052d45')
+  drawRidge(horizon - height * 0.015, height * 0.048, 0.7, '#176c78')
+  drawRidge(horizon + height * 0.045, height * 0.064, 1.8, '#0c4d62')
+  drawRidge(horizon + height * 0.12, height * 0.075, 2.5, '#07364f')
 
   // Far coral silhouettes add a readable reef line without competing with the near 3D coral models.
   const coralPalette = ['#1b6870', '#205c67', '#285e68', '#3d6a68']
@@ -173,7 +173,7 @@ function createUnderwaterPanorama(quality: GraphicsTier) {
 
 function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
   const texture = useMemo(() => createUnderwaterPanorama(quality), [quality])
-  const geometry = useMemo(() => new THREE.SphereGeometry(92, quality === 'mobile' ? 32 : 48, quality === 'mobile' ? 20 : 32), [quality])
+  const geometry = useMemo(() => new THREE.SphereGeometry(150, quality === 'mobile' ? 32 : 48, quality === 'mobile' ? 20 : 32), [quality])
   useEffect(() => () => { texture?.dispose() }, [texture])
   useEffect(() => () => geometry.dispose(), [geometry])
   return (
@@ -188,10 +188,28 @@ function TropicalFish({ index, quality, school = 0 }: FishProps) {
   const tail = useRef<THREE.Group>(null)
   const pectorals = useRef<THREE.Group>(null)
   const phase = index * 1.73 + school * 2.1
-  const colors = ['#f6a23e', '#22b8ca', '#e77d59', '#8fc86c', '#e7c75c', '#709ee7', '#d891c5', '#e8dfc9']
+  const colors = ['#d98c3f', '#2695a8', '#d66f4d', '#77a96a', '#c2a64a', '#6489b6', '#b47da6', '#d5c8aa']
   const color = colors[(index + school * 3) % colors.length]
   const isClownfish = (index + school) % 5 === 0
   const segments = quality === 'mobile' ? 18 : quality === 'balanced' ? 28 : 36
+  const bodyGeometry = useMemo(() => {
+    const profile = [
+      new THREE.Vector2(0, -0.58),
+      new THREE.Vector2(0.055, -0.54),
+      new THREE.Vector2(0.115, -0.43),
+      new THREE.Vector2(0.17, -0.24),
+      new THREE.Vector2(0.205, -0.02),
+      new THREE.Vector2(0.19, 0.18),
+      new THREE.Vector2(0.145, 0.34),
+      new THREE.Vector2(0.075, 0.47),
+      new THREE.Vector2(0.025, 0.54),
+      new THREE.Vector2(0, 0.56),
+    ]
+    const geometry = new THREE.LatheGeometry(profile, segments)
+    geometry.rotateX(Math.PI / 2)
+    return geometry
+  }, [segments])
+  useEffect(() => () => bodyGeometry.dispose(), [bodyGeometry])
 
   useFrame((state) => {
     const group = root.current
@@ -211,25 +229,24 @@ function TropicalFish({ index, quality, school = 0 }: FishProps) {
   })
 
   return (
-    <group ref={root} scale={0.72 + (index % 5) * 0.12} raycast={noRaycast}>
-      {/* Rounded, tapered-looking body, with a distinct head and mouth. */}
-      <mesh scale={[0.235, 0.15, 0.49]} castShadow={quality !== 'mobile'}>
-        <sphereGeometry args={[1, segments, Math.max(10, Math.floor(segments * 0.66))]} />
-        <meshPhysicalMaterial color={color} roughness={0.34} metalness={0.025} clearcoat={0.55} clearcoatRoughness={0.25} />
+    <group ref={root} scale={0.94 + (index % 5) * 0.14} raycast={noRaycast}>
+      {/* A tapered, laterally compressed body with a defined tail peduncle and snout. */}
+      <mesh geometry={bodyGeometry} castShadow={quality !== 'mobile'}>
+        <meshPhysicalMaterial color={color} roughness={0.42} metalness={0.015} clearcoat={0.38} clearcoatRoughness={0.32} />
       </mesh>
-      <mesh position={[0, -0.025, 0.405]} scale={[0.105, 0.075, 0.105]}>
+      <mesh position={[0, -0.018, 0.535]} scale={[0.055, 0.042, 0.065]}>
         <sphereGeometry args={[1, 12, 9]} />
-        <meshStandardMaterial color={color} roughness={0.42} />
+        <meshStandardMaterial color={color} roughness={0.48} />
       </mesh>
-      <mesh position={[0, -0.015, 0.49]}>
-        <sphereGeometry args={[0.018, 8, 6]} />
+      <mesh position={[0, -0.015, 0.586]}>
+        <sphereGeometry args={[0.012, 8, 6]} />
         <meshBasicMaterial color="#17212a" />
       </mesh>
       {/* Both eyes, with a pale iris glint. */}
       {[-1, 1].map((side) => (
-        <group key={side} position={[side * 0.205, 0.045, 0.265]} rotation-y={side * 0.58}>
-          <mesh scale={[0.045, 0.045, 0.022]}><sphereGeometry args={[1, 12, 10]} /><meshBasicMaterial color="#fff4d8" /></mesh>
-          <mesh position={[side * 0.012, 0, 0.018]} scale={[0.022, 0.025, 0.014]}><sphereGeometry args={[1, 10, 8]} /><meshBasicMaterial color="#13222c" /></mesh>
+        <group key={side} position={[side * 0.176, 0.036, 0.285]} rotation-y={side * 0.58}>
+          <mesh scale={[0.032, 0.032, 0.018]}><sphereGeometry args={[1, 12, 10]} /><meshBasicMaterial color="#fff4d8" /></mesh>
+          <mesh position={[side * 0.012, 0, 0.018]} scale={[0.016, 0.018, 0.01]}><sphereGeometry args={[1, 10, 8]} /><meshBasicMaterial color="#13222c" /></mesh>
           <mesh position={[-0.008, 0.012, 0.028]} scale={0.007}><sphereGeometry args={[1, 8, 6]} /><meshBasicMaterial color="#ffffff" /></mesh>
         </group>
       ))}
@@ -252,18 +269,24 @@ function TropicalFish({ index, quality, school = 0 }: FishProps) {
       </mesh>
       <group ref={pectorals}>
         {[-1, 1].map((side) => (
-          <mesh key={side} position={[side * 0.19, -0.015, 0.04]} rotation={[0.2, side * 0.25, side * -0.42]} scale={[0.12, 0.035, 0.23]}>
+          <mesh key={side} position={[side * 0.175, -0.015, 0.035]} rotation={[0.2, side * 0.25, side * -0.42]} scale={[0.12, 0.035, 0.23]}>
             <sphereGeometry args={[1, 12, 8]} />
             <meshStandardMaterial color={isClownfish ? '#ffc16a' : color} roughness={0.45} side={THREE.DoubleSide} />
           </mesh>
         ))}
       </group>
       {/* Clownfish-like pale bands make a few familiar Nemo-inspired fish recognizable. */}
-      {isClownfish && [-0.2, 0.08, 0.3].map((z) => (
-        <mesh key={z} position={[0, 0, z]} rotation-y={Math.PI / 2} scale={[0.125, 0.135, 1]}>
-          <torusGeometry args={[1, 0.12, 5, 18]} />
-          <meshStandardMaterial color="#fff0d6" roughness={0.42} />
-        </mesh>
+      {isClownfish && [-0.22, 0.08, 0.32].map((z, band) => (
+        <group key={z} position={[0, 0, z]}>
+          <mesh scale={[band === 1 ? 0.18 : 0.145, band === 1 ? 0.19 : 0.15, 1]}>
+            <torusGeometry args={[1, 0.018, 6, 28]} />
+            <meshStandardMaterial color="#26333a" roughness={0.62} />
+          </mesh>
+          <mesh scale={[band === 1 ? 0.18 : 0.145, band === 1 ? 0.19 : 0.15, 1]}>
+            <torusGeometry args={[1, 0.043, 7, 32]} />
+            <meshPhysicalMaterial color="#f4e9d2" roughness={0.55} clearcoat={0.12} />
+          </mesh>
+        </group>
       ))}
       {/* Gill detail on both sides. */}
       {[-1, 1].map((side) => (
@@ -401,6 +424,36 @@ function CoralBranch({ position, tint, seed }: { position: [number, number, numb
   )
 }
 
+
+function SeaFan({ position, tint, seed }: { position: [number, number, number]; tint: string; seed: number }) {
+  const branches = useMemo(() => Array.from({ length: 9 }, (_, i) => {
+    const t = i / 8
+    return {
+      x: (t - 0.5) * 1.55,
+      h: 1.5 + Math.sin(t * Math.PI) * 1.2 + ((i + seed) % 3) * 0.08,
+      lean: (t - 0.5) * 0.28,
+    }
+  }), [seed])
+  return (
+    <group position={position} raycast={noRaycast}>
+      {branches.map((branch, i) => (
+        <group key={i} position={[branch.x * 0.35, 0.18, 0]} rotation-z={branch.lean}>
+          <mesh position={[0, branch.h * 0.5, 0]}>
+            <cylinderGeometry args={[0.012, 0.035, branch.h, 6]} />
+            <meshStandardMaterial color={tint} roughness={0.62} />
+          </mesh>
+          {[-1, 1].map((side) => (
+            <mesh key={side} position={[side * 0.12, branch.h * 0.62, 0]} rotation-z={side * 0.6} scale={[0.08, 0.22, 0.025]}>
+              <sphereGeometry args={[1, 8, 6]} />
+              <meshStandardMaterial color={tint} roughness={0.58} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+    </group>
+  )
+}
+
 function Kelp({ position, seed }: { position: [number, number, number]; seed: number }) {
   const stalk = useRef<THREE.Group>(null)
   useFrame((state) => {
@@ -469,8 +522,8 @@ function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: 
     }
   }, [texture, quality])
   const geometry = useMemo(() => {
-    const segments = quality === 'mobile' ? 20 : quality === 'balanced' ? 34 : 48
-    const plane = new THREE.PlaneGeometry(110, 100, segments, segments)
+    const segments = quality === 'mobile' ? 18 : quality === 'balanced' ? 28 : 40
+    const plane = new THREE.PlaneGeometry(240, 220, segments * 2, segments * 2)
     const positions = plane.attributes.position as THREE.BufferAttribute
     for (let i = 0; i < positions.count; i += 1) {
       const x = positions.getX(i)
@@ -493,13 +546,14 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
   onPathClick: (event: ThreeEvent<MouseEvent>) => void
   quality?: GraphicsTier
 }) {
-  const coralCount = quality === 'mobile' ? 12 : quality === 'balanced' ? 20 : 30
-  const kelpCount = quality === 'mobile' ? 6 : quality === 'balanced' ? 12 : 18
+  const coralCount = quality === 'mobile' ? 16 : quality === 'balanced' ? 26 : 38
+  const kelpCount = quality === 'mobile' ? 8 : quality === 'balanced' ? 16 : 24
   const fishCount = quality === 'mobile' ? 12 : quality === 'balanced' ? 22 : 34
+  const reefRockCount = quality === 'mobile' ? 9 : 13
   const coralTints = ['#ef7fa2', '#f29c64', '#a987e8', '#f0c96f', '#53b9aa', '#e887bd']
   const coralPositions = useMemo(() => Array.from({ length: coralCount }, (_, i) => {
     const angle = i * 2.399963
-    const radius = 10 + (i % 5) * 3.2
+    const radius = 8.5 + (i % 6) * 3.4
     return {
       position: [Math.cos(angle) * radius, -5.18, Math.sin(angle) * radius - 2] as [number, number, number],
       tint: coralTints[i % coralTints.length],
@@ -530,12 +584,14 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
       <UnderwaterDome quality={quality} />
 
       {/* A natural reef escarpment with rounded rock shelves and a swim-through cave. */}
-      {Array.from({ length: quality === 'mobile' ? 9 : 13 }, (_, i) => {
+      {Array.from({ length: reefRockCount }, (_, i) => {
+        // Keep the center opening clear so the cave remains a real swim-through.
+        if (i === Math.floor(reefRockCount / 2)) return null
         const spacing = i % 2 === 0 ? 7.7 : 6.4
         const x = (i - (quality === 'mobile' ? 4 : 6)) * spacing + Math.sin(i * 1.7) * 1.1
-        const z = -37 - (i % 3) * 2.8
-        const height = 5.5 + (i % 4) * 1.6
-        const depth = 2.7 + (i % 3) * 0.8
+        const z = -27 - (i % 3) * 3.6
+        const height = 7.2 + (i % 4) * 1.8
+        const depth = 3.4 + (i % 3) * 1.0
         return <mesh key={`reef-rock-${i}`} position={[x, -5.15 + height * 0.5, z]} rotation-z={Math.sin(i * 2.1) * 0.11} scale={[3.2 + (i % 3) * 0.7, height, depth]} raycast={noRaycast} castShadow={quality !== 'mobile'}>
           <sphereGeometry args={[1, quality === 'mobile' ? 16 : 24, quality === 'mobile' ? 10 : 16]} />
           <meshStandardMaterial color={['#345d5d', '#496c66', '#33545d', '#61796d'][i % 4]} roughness={0.98} />
@@ -546,9 +602,9 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
       {[-1, 1].flatMap((side) => Array.from({ length: quality === 'mobile' ? 3 : 5 }, (_, i) => (
         <mesh
           key={`side-reef-${side}-${i}`}
-          position={[side * (32 + (i % 2) * 4), -2.4 + (i % 3) * 0.45, -22 + i * 13]}
+          position={[side * (26 + (i % 2) * 4.5), -2.05 + (i % 3) * 0.35, -20 + i * 10.5]}
           rotation-z={side * (0.06 + i * 0.025)}
-          scale={[4.5 + (i % 2), 3.3 + (i % 3) * 0.7, 7.5 + (i % 2) * 1.5]}
+          scale={[5.4 + (i % 2), 4.1 + (i % 3) * 0.8, 8.0 + (i % 2) * 1.6]}
           raycast={noRaycast}
         >
           <icosahedronGeometry args={[1, 2]} />
@@ -557,6 +613,12 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
       )))}
 
       {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
+      {[
+        { position: [-16, -4.95, -10] as [number, number, number], tint: '#c77aa4' },
+        { position: [16, -4.95, -14] as [number, number, number], tint: '#d58b65' },
+        { position: [-22, -4.95, -25] as [number, number, number], tint: '#9d86c8' },
+        { position: [22, -4.95, -27] as [number, number, number], tint: '#d5b36f' },
+      ].slice(0, quality === 'mobile' ? 2 : 4).map((fan, i) => <SeaFan key={i} {...fan} seed={i * 17 + 4} />)}
       {kelpPositions.map((position, i) => <Kelp key={i} position={position} seed={i * 2.1} />)}
       {Array.from({ length: fishCount }, (_, i) => <TropicalFish key={`school-a-${i}`} index={i} quality={quality} school={i % 4} />)}
       {Array.from({ length: Math.max(7, Math.floor(fishCount * 0.55)) }, (_, i) => <TropicalFish key={`school-b-${i}`} index={i + 11} quality={quality} school={i % 4 + 4} />)}

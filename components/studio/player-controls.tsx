@@ -113,7 +113,9 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   return (
     <>
       <div className="mpd-desktop-move-hint" aria-hidden="true">
-        <span>W A S D</span> 또는 방향키로 이동 · 마우스로 바닥을 누르면 해당 위치로 이동
+        {underwater
+          ? <><span>W A S D</span> 수평 수영 · <span>Space</span> 상승 · <span>Shift</span> 하강 · 마우스 클릭으로 3D 목적지 이동</>
+          : <><span>W A S D</span> 또는 방향키로 이동 · 마우스로 바닥을 누르면 해당 위치로 이동</>}
       </div>
       <div className="mpd-mobile-controls" aria-label="모바일 이동 조이스틱">
         <div
