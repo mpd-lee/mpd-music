@@ -15,20 +15,12 @@ export const SUN_POSITION: [number, number, number] = [70, 45, 90]
 const noRaycast = () => null
 const UP = new THREE.Vector3(0, 1, 0)
 
-// The front photo and forest panorama share one measured backdrop frame.
-// Their equal height/centre prevents a visible vertical ledge at the photo edge.
-const BACKDROP_WIDTH = 430
-const BACKDROP_HEIGHT = 215
-const BACKDROP_CENTER_Y = 22
-const BACKDROP_RADIUS = 210
-const FRONT_BAY_HALF_ANGLE = Math.PI / 4
-
 
 type SeatHandler = (position: [number, number, number], rotationY: number) => void
 
 /**
  * A 3D water shelf fills the space between the irregular island coast and the
- * panoramic backdrop. Its inner edge follows the exact same shoreline
+ * 360-degree photo horizon. Its inner edge follows the exact same shoreline
  * function as the land mesh, so the grass does not end at a raised cliff.
  */
 function createCoastalWaterRingGeometry(quality: GraphicsTier) {
@@ -116,18 +108,19 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   context.imageSmoothingQuality = 'high'
   context.drawImage(image, 0, 0, width, height)
 
-  // The coastal photo now sits on a curved 90-degree bay segment that shares
-  // the forest shell's cylindrical projection. A transparent alpha feather blends
-  // the two photographs at the same radius; it does not blur or repaint either image.
-  const fadeWidth = 0.045
+  // The V14 plane remains at the same position and size. Only its left/right
+  // borders are feathered so no hard vertical photo edge is visible against trees.
+  // A longer eased feather hides the straight cut where the coastal photo meets
+  // the forest belt. Keep the photograph's centre fully opaque and untouched.
+  const fadeWidth = 0.155
   const alpha = context.createLinearGradient(0, 0, width, 0)
   alpha.addColorStop(0, 'rgba(0,0,0,0)')
-  alpha.addColorStop(fadeWidth * 0.22, 'rgba(0,0,0,0.12)')
-  alpha.addColorStop(fadeWidth * 0.62, 'rgba(0,0,0,0.76)')
+  alpha.addColorStop(fadeWidth * 0.28, 'rgba(0,0,0,0.10)')
+  alpha.addColorStop(fadeWidth * 0.68, 'rgba(0,0,0,0.72)')
   alpha.addColorStop(fadeWidth, 'rgba(0,0,0,1)')
   alpha.addColorStop(1 - fadeWidth, 'rgba(0,0,0,1)')
-  alpha.addColorStop(1 - fadeWidth * 0.62, 'rgba(0,0,0,0.76)')
-  alpha.addColorStop(1 - fadeWidth * 0.22, 'rgba(0,0,0,0.12)')
+  alpha.addColorStop(1 - fadeWidth * 0.68, 'rgba(0,0,0,0.72)')
+  alpha.addColorStop(1 - fadeWidth * 0.28, 'rgba(0,0,0,0.10)')
   alpha.addColorStop(1, 'rgba(0,0,0,0)')
   context.globalCompositeOperation = 'destination-in'
   context.fillStyle = alpha
@@ -137,10 +130,6 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   blended.colorSpace = THREE.SRGBColorSpace
   blended.wrapS = THREE.ClampToEdgeWrapping
   blended.wrapT = THREE.ClampToEdgeWrapping
-  // CylinderGeometry's theta increases from the screen-right edge to screen-left.
-  // Mirror U so the original coastal photograph keeps its natural left-to-right order.
-  blended.repeat.x = -1
-  blended.offset.x = 1
   blended.anisotropy = quality === 'mobile' ? 2 : 12
   blended.minFilter = THREE.LinearMipmapLinearFilter
   blended.magFilter = THREE.LinearFilter
@@ -149,123 +138,45 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   return blended
 }
 
-function PhotoSeaRipple({ quality }: { quality: GraphicsTier }) {
-  // Moving specular highlights follow the same curved bay as the photo.
-  // The original photograph remains unchanged underneath this transparent shader.
-  const uniforms = useMemo(() => ({ uTime: { value: 0 } }), [])
-  const geometry = useMemo(() => new THREE.CylinderGeometry(
-    BACKDROP_RADIUS - 1.12,
-    BACKDROP_RADIUS - 1.12,
-    BACKDROP_HEIGHT,
-    quality === 'mobile' ? 48 : 88,
-    1,
-    true,
-    Math.PI - FRONT_BAY_HALF_ANGLE,
-    FRONT_BAY_HALF_ANGLE * 2,
-  ), [quality])
-  useEffect(() => () => geometry.dispose(), [geometry])
-  useFrame((state) => { uniforms.uTime.value = state.clock.elapsedTime })
+function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
+  const source = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
+  const image = useMemo(() => createCoastEdgeBlend(source, quality), [source, quality])
+  useEffect(() => () => { if (image !== source) image.dispose() }, [image, source])
   return (
-    <mesh geometry={geometry} position={[0, BACKDROP_CENTER_Y, 0]} raycast={noRaycast} renderOrder={-89} frustumCulled={false}>
-      <shaderMaterial
-        transparent
-        depthWrite={false}
-        toneMapped={false}
-        side={THREE.DoubleSide}
-        uniforms={uniforms}
-        vertexShader={`
-          varying vec2 vUv;
-          void main() {
-            vUv = uv;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          }
-        `}
-        fragmentShader={`
-          uniform float uTime;
-          varying vec2 vUv;
-          void main() {
-            float imageY = 1.0 - vUv.y;
-            float waterBand = smoothstep(0.485, 0.515, imageY) * (1.0 - smoothstep(0.695, 0.755, imageY));
-            float openWater = smoothstep(0.16, 0.25, vUv.x) * (1.0 - smoothstep(0.76, 0.86, vUv.x));
-            float waveA = sin(vUv.y * 510.0 + sin(vUv.x * 34.0 + uTime * 0.18) * 1.7 + uTime * 0.62);
-            float waveB = sin(vUv.y * 285.0 - vUv.x * 17.0 - uTime * 0.27);
-            float crest = pow(max(0.0, waveA), 17.0) * 0.060 + pow(max(0.0, waveB), 23.0) * 0.026;
-            float shimmer = 0.007 + 0.0045 * (0.5 + 0.5 * sin(uTime * 0.22 + vUv.x * 8.0 + vUv.y * 24.0));
-            float alpha = (crest + shimmer) * waterBand * openWater;
-            gl_FragColor = vec4(vec3(0.76, 0.93, 0.98), alpha);
-          }
-        `}
-      />
+    <mesh position={[0, 22, -215]} raycast={noRaycast} rotation-y={0} renderOrder={-90} frustumCulled={false}>
+      <planeGeometry args={[430, 215]} />
+      <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.DoubleSide} depthWrite={false} />
     </mesh>
   )
 }
 
-function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
-  const source = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
-  const image = useMemo(() => createCoastEdgeBlend(source, quality), [source, quality])
-  const geometry = useMemo(() => new THREE.CylinderGeometry(
-    BACKDROP_RADIUS - 0.82,
-    BACKDROP_RADIUS - 0.82,
-    BACKDROP_HEIGHT,
-    quality === 'mobile' ? 48 : 88,
-    1,
-    true,
-    Math.PI - FRONT_BAY_HALF_ANGLE,
-    FRONT_BAY_HALF_ANGLE * 2,
-  ), [quality])
-  useEffect(() => () => {
-    if (image !== source) image.dispose()
-    geometry.dispose()
-  }, [image, source, geometry])
-  return (
-    <>
-      <mesh geometry={geometry} position={[0, BACKDROP_CENTER_Y, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
-        <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.DoubleSide} depthWrite={false} />
-      </mesh>
-      <PhotoSeaRipple quality={quality} />
-    </>
-  )
-}
-
-function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Texture, quality: GraphicsTier) {
+function createGreenForestTexture(source: THREE.Texture, quality: GraphicsTier) {
   if (typeof document === 'undefined') return source
   const image = source.image as HTMLImageElement
-  const coastImage = coastSource.image as HTMLImageElement
   const sourceWidth = image?.naturalWidth || image?.width || 0
   const sourceHeight = image?.naturalHeight || image?.height || 0
-  const coastWidth = coastImage?.naturalWidth || coastImage?.width || 0
-  const coastHeight = coastImage?.naturalHeight || coastImage?.height || 0
-  if (!sourceWidth || !sourceHeight || !coastWidth || !coastHeight) return source
+  if (!sourceWidth || !sourceHeight) return source
 
   const maxWidth = quality === 'mobile' ? 1024 : 2048
   const width = Math.min(sourceWidth, maxWidth)
-  // Both backdrops use a 2:1 frame. Match that frame exactly instead of
-  // stretching the 1.79:1 forest original vertically to fit the cylinder.
-  const height = Math.max(1, Math.round(width / 2))
+  const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth))
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d', { willReadFrequently: true })
   if (!context) return source
 
-  // Crop only the narrow damaged side pixels, then centre-crop vertically to
-  // the exact 2:1 projection used by the front bay. This prevents the forest
-  // panorama from being stretched wider than its source photograph.
-  const cropX = Math.round(sourceWidth * 0.105)
-  const sourceRectWidth = sourceWidth - cropX * 2
-  const sourceRectHeight = Math.min(sourceHeight, sourceRectWidth / 2)
-  const cropY = Math.max(0, (sourceHeight - sourceRectHeight) * 0.5)
-  context.imageSmoothingEnabled = true
-  context.imageSmoothingQuality = 'high'
-  context.filter = 'saturate(0.94) contrast(1.025) brightness(1.01)'
-  context.drawImage(image, cropX, cropY, sourceRectWidth, sourceRectHeight, 0, 0, width, height)
+  // The original forest image has soft smeared strips at both horizontal edges.
+  // Crop those strips before mapping it to the panoramic cylinder.
+  const crop = Math.round(sourceWidth * 0.055)
+  context.filter = 'saturate(0.96) contrast(1.075) brightness(1.012)'
+  context.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
   context.filter = 'none'
 
+  // Shift only warm yellow/orange foliage into fresh spring greens. Dark trunks,
+  // shadows, sky and already-green leaves retain their natural colors.
   const frame = context.getImageData(0, 0, width, height)
   const pixels = frame.data
-
-  // Bring warm yellow foliage into the same fresh-green family as the coastal photo.
-  // Trunks, shadows, sky, and already-green leaves retain their natural variation.
   for (let i = 0; i < pixels.length; i += 4) {
     const r = pixels[i] / 255
     const g = pixels[i + 1] / 255
@@ -283,9 +194,9 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
     const saturation = max <= 0 ? 0 : delta / max
     if (hue < 28 || hue > 96 || saturation < 0.22 || max < 0.30 || g < b * 1.06) continue
 
-    const targetHue = 86 + Math.min(9, (hue - 28) * 0.13)
-    const targetSaturation = Math.min(0.66, saturation * 0.75 + 0.055)
-    const value = Math.min(1, max * 1.025)
+    const targetHue = 91 + Math.min(13, (hue - 28) * 0.16)
+    const targetSaturation = Math.min(0.70, saturation * 0.78 + 0.075)
+    const value = Math.min(1, max * 1.045)
     const chroma = value * targetSaturation
     const h = targetHue / 60
     const x = chroma * (1 - Math.abs((h % 2) - 1))
@@ -302,89 +213,40 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
     pixels[i + 2] = Math.round((bb + m) * 255)
   }
 
-  // Match each end of the cylindrical forest to the corresponding edge of the
-  // front coastal photograph. This is a restrained, row-by-row colour grade:
-  // it changes only the outer blend band, preserves detail, and fades to zero
-  // before reaching the main forest image. No network or per-frame work is used.
-  try {
-    const referenceWidth = 256
-    const referenceCanvas = document.createElement('canvas')
-    referenceCanvas.width = referenceWidth
-    referenceCanvas.height = height
-    const referenceContext = referenceCanvas.getContext('2d', { willReadFrequently: true })
-    if (referenceContext) {
-      referenceContext.imageSmoothingEnabled = true
-      referenceContext.imageSmoothingQuality = 'high'
-      referenceContext.drawImage(coastImage, 0, 0, coastWidth, coastHeight, 0, 0, referenceWidth, height)
-      const reference = referenceContext.getImageData(0, 0, referenceWidth, height).data
-      const sampleWidth = Math.max(3, Math.round(width * 0.035))
-      const referenceSampleWidth = Math.max(3, Math.round(referenceWidth * 0.035))
-      const blendBand = Math.max(sampleWidth + 2, Math.round(width * 0.072))
-      const verticalRadius = Math.max(2, Math.round(height * 0.006))
-      const correctionLimit = 54
-      const edgeOffsets = [new Float32Array(height * 3), new Float32Array(height * 3)]
-
-      const clampOffset = (value: number) => Math.max(-correctionLimit, Math.min(correctionLimit, value))
-      const smoothstep = (value: number) => {
-        const t = THREE.MathUtils.clamp(value, 0, 1)
-        return t * t * (3 - 2 * t)
-      }
-
-      for (let y = 0; y < height; y += 1) {
-        const yStart = Math.max(0, y - verticalRadius)
-        const yEnd = Math.min(height - 1, y + verticalRadius)
-        for (let side = 0; side < 2; side += 1) {
-          const forestSum = [0, 0, 0]
-          const coastSum = [0, 0, 0]
-          let forestSamples = 0
-          let coastSamples = 0
-          for (let sy = yStart; sy <= yEnd; sy += 1) {
-            for (let x = 0; x < sampleWidth; x += 1) {
-              const sx = side === 0 ? x : width - 1 - x
-              const offset = (sy * width + sx) * 4
-              forestSum[0] += pixels[offset]
-              forestSum[1] += pixels[offset + 1]
-              forestSum[2] += pixels[offset + 2]
-              forestSamples += 1
-            }
-            for (let x = 0; x < referenceSampleWidth; x += 1) {
-              const sx = side === 0 ? x : referenceWidth - 1 - x
-              const offset = (sy * referenceWidth + sx) * 4
-              coastSum[0] += reference[offset]
-              coastSum[1] += reference[offset + 1]
-              coastSum[2] += reference[offset + 2]
-              coastSamples += 1
-            }
-          }
-          for (let channel = 0; channel < 3; channel += 1) {
-            const forestMean = forestSum[channel] / Math.max(1, forestSamples)
-            const coastMean = coastSum[channel] / Math.max(1, coastSamples)
-            edgeOffsets[side][y * 3 + channel] = clampOffset(coastMean - forestMean)
-          }
-        }
-      }
-
-      for (let y = 0; y < height; y += 1) {
-        for (let x = 0; x < blendBand; x += 1) {
-          const fromEdge = x / Math.max(1, blendBand - 1)
-          const strength = (1 - smoothstep(fromEdge)) * 0.96
-          if (strength <= 0.001) continue
-          const leftIndex = (y * width + x) * 4
-          const rightIndex = (y * width + (width - 1 - x)) * 4
-          for (let channel = 0; channel < 3; channel += 1) {
-            const leftOffset = edgeOffsets[0][y * 3 + channel]
-            const rightOffset = edgeOffsets[1][y * 3 + channel]
-            pixels[leftIndex + channel] = Math.max(0, Math.min(255, Math.round(pixels[leftIndex + channel] + leftOffset * strength)))
-            pixels[rightIndex + channel] = Math.max(0, Math.min(255, Math.round(pixels[rightIndex + channel] + rightOffset * strength)))
-          }
-        }
+  // Cross-fade both ends to one shared seam color. The texture now closes without
+  // the blurred strips or an obvious repeat boundary.
+  const band = Math.max(2, Math.floor(width * 0.025))
+  for (let y = 0; y < height; y += 1) {
+    const left = (y * width) * 4
+    const right = (y * width + width - 1) * 4
+    const average = [0, 1, 2].map((c) => (pixels[left + c] + pixels[right + c]) * 0.5)
+    for (let x = 0; x < band; x += 1) {
+      const t = x / Math.max(1, band - 1)
+      const li = (y * width + x) * 4
+      const ri = (y * width + width - band + x) * 4
+      for (let c = 0; c < 3; c += 1) {
+        const leftOriginal = pixels[li + c]
+        const rightOriginal = pixels[ri + c]
+        pixels[li + c] = Math.round(average[c] * (1 - t) + leftOriginal * t)
+        pixels[ri + c] = Math.round(rightOriginal * (1 - t) + average[c] * t)
       }
     }
-  } catch {
-    // The normal forest grade remains usable if a browser blocks canvas pixel reads.
+  }
+  // Gentle unsharp mask restores leaf and branch definition without introducing
+  // a halo around the left/right panorama seam. This runs once when the texture loads.
+  const sharpenSource = new Uint8ClampedArray(pixels)
+  const sharpenAmount = quality === 'mobile' ? 0.14 : 0.22
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const i = (y * width + x) * 4
+      const neighbours = [i - 4, i + 4, i - width * 4, i + width * 4]
+      for (let channel = 0; channel < 3; channel += 1) {
+        const average = (sharpenSource[neighbours[0] + channel] + sharpenSource[neighbours[1] + channel] + sharpenSource[neighbours[2] + channel] + sharpenSource[neighbours[3] + channel]) * 0.25
+        pixels[i + channel] = Math.max(0, Math.min(255, Math.round(sharpenSource[i + channel] + (sharpenSource[i + channel] - average) * sharpenAmount)))
+      }
+    }
   }
 
-  // Keep the left and right edge grades independent: the panorama has a deliberate rear opening.
   context.putImageData(frame, 0, 0)
 
   const corrected = new THREE.CanvasTexture(canvas)
@@ -392,7 +254,7 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
   corrected.wrapS = THREE.ClampToEdgeWrapping
   corrected.wrapT = THREE.ClampToEdgeWrapping
   corrected.repeat.set(1, 1)
-  corrected.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 10 : 16
+  corrected.anisotropy = quality === 'mobile' ? 4 : quality === 'balanced' ? 12 : 16
   corrected.minFilter = THREE.LinearMipmapLinearFilter
   corrected.magFilter = THREE.LinearFilter
   corrected.generateMipmaps = true
@@ -401,29 +263,15 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
 }
 
 function ForestPanorama({ quality }: { quality: GraphicsTier }) {
-  const forestPath = quality === 'mobile' ? '/images/mpd-forest-photo-mobile.webp' : '/images/mpd-forest-photo.webp'
-  const coastPath = quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp'
-  const [source, coastSource] = useTexture([forestPath, coastPath])
-  const texture = useMemo(() => createGreenForestTexture(source, coastSource, quality), [source, coastSource, quality])
-  // Extend the forest shell a few degrees behind the transparent coastal-photo
-  // edges. This closes the narrow blue-sky slits caused by the plane/cylinder seam.
-  const forestOverlap = 0.145
-  const geometry = useMemo(() => new THREE.CylinderGeometry(
-    BACKDROP_RADIUS,
-    BACKDROP_RADIUS,
-    BACKDROP_HEIGHT,
-    quality === 'mobile' ? 48 : 80,
-    1,
-    true,
-    Math.PI + FRONT_BAY_HALF_ANGLE - forestOverlap,
-    Math.PI * 2 - FRONT_BAY_HALF_ANGLE * 2 + forestOverlap * 2,
-  ), [quality])
+  const source = useTexture(quality === 'mobile' ? '/images/mpd-forest-photo-mobile.webp' : '/images/mpd-forest-photo.webp')
+  const texture = useMemo(() => createGreenForestTexture(source, quality), [source, quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 48 : 80, 1, true, Math.PI + 0.74, Math.PI * 2 - 1.48), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
   }, [texture, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, BACKDROP_CENTER_Y, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, 18, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
       <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} />
     </mesh>
   )
@@ -1353,7 +1201,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
     if (inNoTreeZone(x, z)) continue
     trees.push({
       position: [x, getIslandGroundHeight(x, z), z],
-      scale: 0.88 + forestRandom() * 0.84,
+      scale: (0.88 + forestRandom() * 0.84) * 0.92,
       seed: 520 + trees.length * 31 + Math.floor(forestRandom() * 17),
     })
   }
@@ -1373,7 +1221,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
         if (inNoTreeZone(x, staggeredZ)) { rowIndex += 1; continue }
         nearForest.push({
           position: [x, getIslandGroundHeight(x, staggeredZ), staggeredZ],
-          scale: 1.0 + ((rowIndex * 7 + rowX) % 5) * 0.12,
+          scale: (1.0 + ((rowIndex * 7 + rowX) % 5) * 0.12) * 0.92,
           seed: 9100 + nearForest.length * 17 + (side > 0 ? 3 : 0),
         })
         rowIndex += 1
@@ -1387,7 +1235,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
     if (inNoTreeZone(x, z)) return
     rearForest.push({
       position: [x, getIslandGroundHeight(x, z), z],
-      scale: 0.92 + ((row * 3 + index) % 4) * 0.13,
+      scale: (0.92 + ((row * 3 + index) % 4) * 0.13) * 0.92,
       seed: 12600 + row * 101 + index * 13,
     })
   }))

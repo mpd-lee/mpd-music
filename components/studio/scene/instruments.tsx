@@ -9,19 +9,21 @@ import {
   playCymbal,
   playHiHat,
   playKick,
+  playFunkyBass,
   playPiano,
   playPianoChord,
   playRhodes,
+  playSynth,
   playSnare,
   playTom,
   strumGuitar,
 } from '@/lib/sound'
 import { createDrumHeadTexture, createFabricTexture } from '@/lib/textures'
-import { CLICK_DRAG_TOLERANCE, Interactive } from './interactive'
+import { Interactive } from './interactive'
 
 const isBlack = (midi: number) => [1, 3, 6, 8, 10].includes(midi % 12)
 const CHROME = { color: '#d9d9d9', metalness: 1, roughness: 0.18 } as const
-type SeatHandler = (position: [number, number, number], rotationY: number) => void
+type SeatHandler = (position: [number, number, number], rotationY: number, activity?: 'drums' | null) => void
 
 function worldSeatPoint(roomPosition: [number, number, number], rotationY: number, local: [number, number, number]): [number, number, number] {
   const offset = new THREE.Vector3(local[0], 0, local[2]).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotationY)
@@ -70,9 +72,9 @@ function Keys({
     blackRef.current!.instanceMatrix.needsUpdate = true
   }, [whites, blacks, keyW, width, depth])
 
-  const handle = (list: number[]) => (e: ThreeEvent<MouseEvent>) => {
+  const handle = (list: number[]) => (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation()
-    if (e.delta > CLICK_DRAG_TOLERANCE || e.instanceId === undefined) return
+    if (e.instanceId === undefined) return
     onNote(list[e.instanceId])
   }
   const hoverOn = (e: ThreeEvent<PointerEvent>) => {
@@ -88,7 +90,7 @@ function Keys({
       <instancedMesh
         ref={whiteRef}
         args={[undefined, undefined, whites.length]}
-        onClick={handle(whites)}
+        onPointerDown={handle(whites)}
         onPointerOver={hoverOn}
         onPointerOut={hoverOff}
       >
@@ -98,7 +100,7 @@ function Keys({
       <instancedMesh
         ref={blackRef}
         args={[undefined, undefined, blacks.length]}
-        onClick={handle(blacks.map((b) => b.midi))}
+        onPointerDown={handle(blacks.map((b) => b.midi))}
         onPointerOver={hoverOn}
         onPointerOut={hoverOff}
       >
@@ -128,7 +130,7 @@ function GrandPiano(props: { position: [number, number, number]; rotationY: numb
   )
   return (
     <group position={props.position} rotation-y={props.rotationY}>
-      <Interactive label="그랜드 피아노 (건반을 눌러 연주)" labelOffset={[0, 1.9, -0.8]} onActivate={() => { playPianoChord(); window.dispatchEvent(new Event('mpd-open-piano')) }}>
+      <Interactive label="그랜드 피아노 (건반을 눌러 연주)" labelOffset={[0, 1.9, -0.8]} onActivate={() => { playPianoChord(); window.dispatchEvent(new CustomEvent('mpd-open-piano', { detail: { instrument: 'piano' } })) }}>
         <mesh position={[0, 0.62, 0]} rotation-x={-Math.PI / 2} castShadow>
           <extrudeGeometry args={[shape, { depth: 0.32, bevelEnabled: true, bevelSize: 0.015, bevelThickness: 0.015, bevelSegments: 3, curveSegments: 40 }]} />
           {lacquer}
@@ -297,7 +299,8 @@ function DrumKit(props: { position: [number, number, number]; rotationY: number;
         label="드럼 스툴에 앉기"
         labelOffset={[0, 0.85, 0]}
         position={[0, 0, 1.35]}
-        onActivate={() => props.onSeat(worldSeatPoint(props.position, props.rotationY, [0, 0, 1.35]), props.rotationY)}
+        noCollision
+        onActivate={() => props.onSeat(worldSeatPoint(props.position, props.rotationY, [0, 0, 1.35]), props.rotationY + Math.PI, 'drums')}
       >
         <mesh position={[0, 0.25, 0]}><cylinderGeometry args={[0.02, 0.02, 0.5, 10]} /><meshStandardMaterial {...CHROME} /></mesh>
         <mesh position={[0, 0.52, 0]} castShadow><cylinderGeometry args={[0.2, 0.2, 0.1, 28]} /><meshStandardMaterial color="#151515" roughness={0.8} /></mesh>
@@ -315,10 +318,29 @@ function guitarBodyShape() {
   return [s, new THREE.Shape(upper.getPoints(40))]
 }
 
-function Guitar({ position, rotationY = 0, color, kind }: { position: [number, number, number]; rotationY?: number; color: string; kind: 'bass' | 'acoustic' }) {
-  const shapes = useMemo(guitarBodyShape, [])
-  const label = kind === 'bass' ? '베이스 기타 · MPD Music 채널' : '어쿠스틱 기타 · MPD Music 채널'
-  const openChannel = () => window.open('https://www.youtube.com/@MPD_Music', '_blank', 'noopener,noreferrer')
+function electricGuitarBodyShape() {
+  const body = new THREE.Shape()
+  body.moveTo(-0.13, -0.31)
+  body.bezierCurveTo(-0.27, -0.30, -0.30, -0.15, -0.21, -0.06)
+  body.bezierCurveTo(-0.29, 0.02, -0.25, 0.19, -0.11, 0.22)
+  body.bezierCurveTo(-0.03, 0.31, 0.08, 0.29, 0.12, 0.21)
+  body.bezierCurveTo(0.27, 0.25, 0.31, 0.12, 0.23, 0.02)
+  body.bezierCurveTo(0.30, -0.08, 0.26, -0.26, 0.11, -0.31)
+  body.bezierCurveTo(0.02, -0.35, -0.07, -0.35, -0.13, -0.31)
+  body.closePath()
+  return [body]
+}
+
+function Guitar({ position, rotationY = 0, color, kind }: { position: [number, number, number]; rotationY?: number; color: string; kind: 'bass' | 'acoustic' | 'electric' }) {
+  const shapes = useMemo(() => kind === 'electric' ? electricGuitarBodyShape() : guitarBodyShape(), [kind])
+  const label = kind === 'bass' ? '베이스 기타 · Spotify 반복 재생' : kind === 'electric' ? '일렉트릭 기타 · Spotify 반복 재생' : '어쿠스틱 기타 · MPD Music 채널'
+  const openTrack = () => {
+    if (kind === 'bass' || kind === 'electric') {
+      window.dispatchEvent(new CustomEvent('mpd-play-spotify-track', { detail: { track: kind } }))
+    } else {
+      window.open('https://www.youtube.com/@MPD_Music', '_blank', 'noopener,noreferrer')
+    }
+  }
   const neckHeight = kind === 'bass' ? 0.9 : 0.68
   const neckY = kind === 'bass' ? 0.62 : 0.5
   const headY = kind === 'bass' ? 1.13 : 0.9
@@ -331,11 +353,17 @@ function Guitar({ position, rotationY = 0, color, kind }: { position: [number, n
           <meshPhysicalMaterial color={color} roughness={kind === 'acoustic' ? 0.42 : 0.2} clearcoat={kind === 'acoustic' ? 0.35 : 1} />
         </mesh>
       ))}
-      {kind === 'acoustic' && (
+      {kind === 'acoustic' ? (
         <>
           <mesh position={[0, -0.12, 0.04]}><circleGeometry args={[0.068, 32]} /><meshStandardMaterial color="#24160e" roughness={0.9} /></mesh>
           <mesh position={[0, -0.12, 0.045]}><torusGeometry args={[0.082, 0.009, 8, 32]} /><meshStandardMaterial color="#d2ad70" metalness={0.25} roughness={0.55} /></mesh>
           <mesh position={[0, -0.28, 0.045]}><boxGeometry args={[0.18, 0.035, 0.018]} /><meshStandardMaterial color="#3a2115" roughness={0.6} /></mesh>
+        </>
+      ) : (
+        <>
+          <RoundedBox args={[0.13, kind === 'bass' ? 0.065 : 0.05, 0.018]} radius={0.012} smoothness={3} position={[0, -0.12, 0.058]}><meshStandardMaterial color="#17191b" roughness={0.48} /></RoundedBox>
+          {kind === 'electric' && <RoundedBox args={[0.13, 0.05, 0.018]} radius={0.012} smoothness={3} position={[0, 0.11, 0.058]}><meshStandardMaterial color="#17191b" roughness={0.48} /></RoundedBox>}
+          {[0.0, 0.15].map((y) => <mesh key={`knob-${y}`} position={[0.12, y - 0.16, 0.06]}><cylinderGeometry args={[0.022, 0.022, 0.016, 16]} /><meshStandardMaterial color="#b9b8b2" metalness={0.9} roughness={0.22} /></mesh>)}
         </>
       )}
       <mesh position={[0, neckY, 0.01]} castShadow><boxGeometry args={[kind === 'bass' ? 0.07 : 0.055, neckHeight, 0.025]} /><meshStandardMaterial color="#c58f52" roughness={0.5} /></mesh>
@@ -352,12 +380,7 @@ function Guitar({ position, rotationY = 0, color, kind }: { position: [number, n
         return <mesh key={`fret-${i}`} position={[0, fretY, 0.047]}><boxGeometry args={[fretWidth, 0.008, 0.006]} /><meshStandardMaterial color="#c2c4c5" metalness={0.94} roughness={0.22} /></mesh>
       })}
       <mesh position={[0, -0.27, 0.05]} castShadow><boxGeometry args={[0.21, 0.055, 0.028]} /><meshStandardMaterial color={kind === 'bass' ? '#202326' : '#3b2417'} roughness={0.42} metalness={kind === 'bass' ? 0.45 : 0.08} /></mesh>
-      {kind === 'bass' && (
-        <>
-          {[-0.13, 0.12].map((y) => <RoundedBox key={y} args={[0.12, 0.065, 0.018]} radius={0.012} smoothness={3} position={[0, y, 0.058]}><meshStandardMaterial color="#17191b" roughness={0.48} /></RoundedBox>)}
-          {[0.0, 0.15].map((y) => <mesh key={`knob-${y}`} position={[0.12, y - 0.16, 0.06]}><cylinderGeometry args={[0.025, 0.025, 0.016, 16]} /><meshStandardMaterial color="#b9b8b2" metalness={0.9} roughness={0.22} /></mesh>)}
-        </>
-      )}
+      
       {kind === 'acoustic' && <mesh position={[0.035, -0.12, 0.051]} rotation-z={-0.22}><boxGeometry args={[0.22, 0.28, 0.009]} /><meshStandardMaterial color="#3c261c" roughness={0.52} /></mesh>}
       {Array.from({ length: stringCount }, (_, i) => {
         const side = i % 2 === 0 ? -1 : 1
@@ -372,8 +395,8 @@ function Guitar({ position, rotationY = 0, color, kind }: { position: [number, n
 
   return (
     <group position={position} rotation-y={rotationY}>
-      <Interactive label={label} labelOffset={[0, 1.55, 0]} onActivate={openChannel}>
-        <GLBAsset url={modelUrl} scale={1} fallback={fallback} />
+      <Interactive label={label} labelOffset={[0, 1.55, 0]} onActivate={openTrack}>
+        {kind === 'electric' ? fallback : <GLBAsset url={modelUrl} scale={1} fallback={fallback} />}
       </Interactive>
     </group>
   )
@@ -428,7 +451,14 @@ function Amp({ position, rotationY = 0, label, onActivate }: { position: [number
   )
 }
 
-function StageKeyboard({ position, rotationY }: { position: [number, number, number]; rotationY: number }) {
+function StageKeyboard({ position, rotationY, instrument = 'rhodes' }: {
+  position: [number, number, number]
+  rotationY: number
+  instrument?: 'rhodes' | 'synth'
+}) {
+  const isSynth = instrument === 'synth'
+  const playInstrument = (midi: number) => isSynth ? playSynth(midi) : playRhodes(midi)
+  const label = isSynth ? '신시사이저 (건반을 눌러 연주)' : '로즈 피아노 (건반을 눌러 연주)'
   return (
     <group position={position} rotation-y={rotationY}>
       {[-0.45, 0.45].map((x) => (
@@ -443,18 +473,21 @@ function StageKeyboard({ position, rotationY }: { position: [number, number, num
           </mesh>
         </group>
       ))}
-      <Interactive label="로즈 피아노 (건반 클릭)" labelOffset={[0, 0.6, 0]} onActivate={() => { [52, 55, 59, 62].forEach((m, i) => playRhodes(m, i * 0.03)); window.dispatchEvent(new Event('mpd-open-piano')) }} position={[0, 0.82, 0]}>
+      <Interactive label={label} labelOffset={[0, 0.6, 0]} onActivate={() => {
+        ;[52, 55, 59, 62].forEach((m, i) => playInstrument(m))
+        window.dispatchEvent(new CustomEvent('mpd-open-piano', { detail: { instrument } }))
+      }} position={[0, 0.82, 0]}>
         <mesh castShadow>
           <boxGeometry args={[1.3, 0.12, 0.36]} />
-          <meshStandardMaterial color="#b8312b" roughness={0.45} />
+          <meshStandardMaterial color={isSynth ? '#1b4e68' : '#b8312b'} roughness={0.42} metalness={isSynth ? 0.28 : 0.08} />
         </mesh>
         <mesh position={[0, 0.07, -0.13]}>
           <boxGeometry args={[1.3, 0.04, 0.1]} />
-          <meshStandardMaterial color="#141414" />
+          <meshStandardMaterial color={isSynth ? '#0d2635' : '#141414'} />
         </mesh>
       </Interactive>
       <group position={[0, 0.89, 0.05]}>
-        <Keys low={36} high={96} width={1.2} depth={0.2} onNote={(m) => playRhodes(m)} />
+        <Keys low={36} high={96} width={1.2} depth={0.2} onNote={playInstrument} />
       </group>
     </group>
   )
@@ -494,10 +527,11 @@ export function Instruments({ onSeat }: { onSeat: SeatHandler }) {
       <GrandPiano position={[-6.2, 0, 3.4]} rotationY={0.75} onSeat={onSeat} />
       <DrumKit position={[5.6, 0, 3.6]} rotationY={-2.4} onSeat={onSeat} />
       <Amp position={[9.6, 0, 6.4]} rotationY={-2.4} label="기타 앰프" onActivate={() => strumGuitar()} />
-      <Amp position={[8.2, 0, 7.6]} rotationY={-2.7} label="베이스 앰프" onActivate={() => playKick()} />
+      <Amp position={[8.2, 0, 7.6]} rotationY={-2.7} label="베이스 앰프 · 펑키 베이스 샘플" onActivate={() => playFunkyBass()} />
       <Guitar position={[9.0, 0, 5.2]} rotationY={-2.2} color="#172b2b" kind="bass" />
-      <Guitar position={[10.4, 0, 4.4]} rotationY={-2.0} color="#b8793e" kind="acoustic" />
-      <StageKeyboard position={[-9.6, 0, -0.6]} rotationY={1.3} />
+      <Guitar position={[10.4, 0, 4.4]} rotationY={-2.0} color="#b84f3d" kind="electric" />
+      <StageKeyboard position={[-9.6, 0, -0.6]} rotationY={1.3} instrument="rhodes" />
+      <StageKeyboard position={[-9.6, 0, -3.0]} rotationY={1.3} instrument="synth" />
     </group>
   )
 }
