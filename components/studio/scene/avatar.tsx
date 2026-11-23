@@ -41,23 +41,24 @@ function ScubaBubbleTrail() {
   const materials = useRef<(THREE.MeshPhysicalMaterial | null)[]>([])
   useFrame((state) => {
     const time = state.clock.elapsedTime
-    // Short breathing bursts: a few tiny bubbles rise, pause, then repeat.
+    // Five small bubbles leave the regulator in one occasional breathing burst.
+    const burst = (time * 0.19) % 1
     bubbles.current.forEach((mesh, index) => {
       const material = materials.current[index]
       if (!mesh || !material) return
-      const cycle = (time * 0.42 + index * 0.31) % 1
-      const visible = cycle < 0.46
+      const phase = (burst - index * 0.022 + 1) % 1
+      const visible = phase < 0.17
       mesh.visible = visible
       if (!visible) return
-      const rise = cycle / 0.46
-      mesh.position.set(Math.sin(time * 1.9 + index * 1.6) * 0.018, 0.01 + rise * 0.26, 0.015)
-      mesh.scale.setScalar(0.006 + rise * 0.009)
-      material.opacity = 0.22 + (1 - rise) * 0.22
+      const rise = phase / 0.17
+      mesh.position.set(Math.sin(time * 1.8 + index * 1.35) * 0.026, 0.015 + rise * 0.39, 0.035 + Math.cos(time + index) * 0.012)
+      mesh.scale.setScalar(0.008 + rise * 0.012)
+      material.opacity = 0.16 + (1 - rise) * 0.30
     })
   })
   return (
     <group position={[0, 1.035, 0.325]}>
-      {Array.from({ length: 3 }, (_, index) => (
+      {Array.from({ length: 5 }, (_, index) => (
         <mesh key={index} ref={(mesh) => { bubbles.current[index] = mesh }}>
           <sphereGeometry args={[1, 8, 6]} />
           <meshPhysicalMaterial ref={(material) => { materials.current[index] = material }} color="#d8fbff" transparent opacity={0.38} roughness={0.06} metalness={0} clearcoat={1} depthWrite={false} />
@@ -99,9 +100,9 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     if (!controls || !root.current) return
     const pos = root.current.position
     // Re-enter both realms from a stable over-the-shoulder view, never a top-down camera.
-    const targetHeight = underwaterMode ? 1.38 : 2.35
-    const cameraHeight = underwaterMode ? 2.62 : 3.15
-    const cameraBack = underwaterMode ? 8.0 : 8.5
+    const targetHeight = underwaterMode ? 1.42 : 2.35
+    const cameraHeight = underwaterMode ? 2.18 : 3.15
+    const cameraBack = underwaterMode ? 7.15 : 8.5
     const facing = root.current.rotation.y
     controls.target.set(pos.x, pos.y + targetHeight, pos.z)
     camera.position.set(
@@ -227,7 +228,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
 
     if (underwaterMode && Math.abs(input.y ?? 0) > 0.04) {
       arrived.current = true
-      const verticalStep = THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * 3.8 * dt
+      const verticalStep = THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * 4.9 * dt
       const candidateY = THREE.MathUtils.clamp(g.position.y + verticalStep, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
       // Free vertical buoyancy: reef colliders must never trap the diver.
       g.position.y = candidateY
@@ -248,7 +249,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       const direction = right.multiplyScalar(input.x).addScaledVector(forward, -input.z)
       if (direction.lengthSq() > 0.001) {
         direction.normalize()
-        const speed = underwaterMode ? 4.0 : SPEED
+        const speed = underwaterMode ? 5.35 : SPEED
         const displacement = direction.clone().multiplyScalar(speed * dt)
         if (underwaterMode) g.position.add(displacement)
         else moveWithCollision(g.position, displacement, colliders, { radius: 0.28, height: 1.72 })
@@ -275,7 +276,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
           g.rotation.y += diff * Math.min(1, dt * 10)
         }
         // Keep click-to-move responsive while the avatar smoothly turns toward the destination.
-        const moveSpeed = underwaterMode ? 3.05 : swimming.current && g.position.y < -0.8 ? 3.05 : swimming.current ? 3.35 : SPEED
+        const moveSpeed = underwaterMode ? 4.45 : swimming.current && g.position.y < -0.8 ? 3.35 : swimming.current ? 3.65 : SPEED
         const step = Math.min(dist, moveSpeed * dt)
         const movement = new THREE.Vector3((dx / dist) * step, underwaterMode ? (dy / dist) * step : 0, (dz / dist) * step)
         if (underwaterMode) g.position.add(movement)
@@ -475,12 +476,10 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       const delta = g.position.clone().sub(prev.current)
       if (delta.lengthSq() > 0) {
         if (underwaterMode) {
-          // Partial vertical camera follow makes ascent/descent visible in-frame;
-          // a full Y lock made the diver appear stationary against the background.
+          // Keep the diver anchored in the third-person frame during ascent/descent.
+          // OrbitControls still gives the player free pitch/yaw around this moving target.
           const targetDelta = delta.clone()
           const cameraDelta = delta.clone()
-          targetDelta.y *= 0.84
-          cameraDelta.y *= 0.84
           controls.target.add(targetDelta)
           camera.position.add(cameraDelta)
         } else {

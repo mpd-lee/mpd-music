@@ -502,10 +502,10 @@ export function StudioScene({
           enableDamping
           dampingFactor={0.08}
           rotateSpeed={graphicsTier === 'mobile' ? 0.48 : 0.68}
-          minDistance={graphicsTier === 'mobile' ? 4.2 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 40 : 50) : graphicsTier === 'mobile' ? 48 : 54}
-          minPolarAngle={underwater ? 0.72 : 1.00}
-          maxPolarAngle={underwater ? 2.22 : 1.86}
+          minDistance={underwater ? (graphicsTier === 'mobile' ? 6.2 : 5.8) : graphicsTier === 'mobile' ? 4.2 : 3.8}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 10.8 : 11.8) : graphicsTier === 'mobile' ? 48 : 54}
+          minPolarAngle={underwater ? 0.46 : 1.00}
+          maxPolarAngle={underwater ? 2.64 : 1.86}
           target={DEFAULT_ORBIT_TARGET}
         />
       </Canvas>

@@ -116,11 +116,10 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   context.imageSmoothingQuality = 'high'
   context.drawImage(image, 0, 0, width, height)
 
-  // The V14 plane remains at the same position and size. Only its left/right
-  // borders are feathered so no hard vertical photo edge is visible against trees.
-  // Keep the image sharp: a narrow 2.4% feather softens only the outermost
-  // edge pixels. The forest shell is extended behind this edge to prevent blue slits.
-  const fadeWidth = 0.024
+  // The coastal photo now sits on a curved 90-degree bay segment that shares
+  // the forest shell's cylindrical projection. A transparent alpha feather blends
+  // the two photographs at the same radius; it does not blur or repaint either image.
+  const fadeWidth = 0.045
   const alpha = context.createLinearGradient(0, 0, width, 0)
   alpha.addColorStop(0, 'rgba(0,0,0,0)')
   alpha.addColorStop(fadeWidth * 0.22, 'rgba(0,0,0,0.12)')
@@ -138,6 +137,10 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   blended.colorSpace = THREE.SRGBColorSpace
   blended.wrapS = THREE.ClampToEdgeWrapping
   blended.wrapT = THREE.ClampToEdgeWrapping
+  // CylinderGeometry's theta increases from the screen-right edge to screen-left.
+  // Mirror U so the original coastal photograph keeps its natural left-to-right order.
+  blended.repeat.x = -1
+  blended.offset.x = 1
   blended.anisotropy = quality === 'mobile' ? 2 : 12
   blended.minFilter = THREE.LinearMipmapLinearFilter
   blended.magFilter = THREE.LinearFilter
@@ -146,19 +149,29 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   return blended
 }
 
-function PhotoSeaRipple() {
-  // A separate transparent shader adds tiny moving specular lines only over
-  // the water pixels. The underlying coastal photograph is never displaced,
-  // recoloured, repainted or replaced.
+function PhotoSeaRipple({ quality }: { quality: GraphicsTier }) {
+  // Moving specular highlights follow the same curved bay as the photo.
+  // The original photograph remains unchanged underneath this transparent shader.
   const uniforms = useMemo(() => ({ uTime: { value: 0 } }), [])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(
+    BACKDROP_RADIUS - 1.12,
+    BACKDROP_RADIUS - 1.12,
+    BACKDROP_HEIGHT,
+    quality === 'mobile' ? 48 : 88,
+    1,
+    true,
+    Math.PI - FRONT_BAY_HALF_ANGLE,
+    FRONT_BAY_HALF_ANGLE * 2,
+  ), [quality])
+  useEffect(() => () => geometry.dispose(), [geometry])
   useFrame((state) => { uniforms.uTime.value = state.clock.elapsedTime })
   return (
-    <mesh position={[0, BACKDROP_CENTER_Y, -BACKDROP_RADIUS - 4.92]} raycast={noRaycast} renderOrder={-89} frustumCulled={false}>
-      <planeGeometry args={[BACKDROP_WIDTH, BACKDROP_HEIGHT]} />
+    <mesh geometry={geometry} position={[0, BACKDROP_CENTER_Y, 0]} raycast={noRaycast} renderOrder={-89} frustumCulled={false}>
       <shaderMaterial
         transparent
         depthWrite={false}
         toneMapped={false}
+        side={THREE.DoubleSide}
         uniforms={uniforms}
         vertexShader={`
           varying vec2 vUv;
@@ -176,8 +189,8 @@ function PhotoSeaRipple() {
             float openWater = smoothstep(0.16, 0.25, vUv.x) * (1.0 - smoothstep(0.76, 0.86, vUv.x));
             float waveA = sin(vUv.y * 510.0 + sin(vUv.x * 34.0 + uTime * 0.18) * 1.7 + uTime * 0.62);
             float waveB = sin(vUv.y * 285.0 - vUv.x * 17.0 - uTime * 0.27);
-            float crest = pow(max(0.0, waveA), 17.0) * 0.052 + pow(max(0.0, waveB), 23.0) * 0.022;
-            float shimmer = 0.006 + 0.004 * (0.5 + 0.5 * sin(uTime * 0.22 + vUv.x * 8.0 + vUv.y * 24.0));
+            float crest = pow(max(0.0, waveA), 17.0) * 0.060 + pow(max(0.0, waveB), 23.0) * 0.026;
+            float shimmer = 0.007 + 0.0045 * (0.5 + 0.5 * sin(uTime * 0.22 + vUv.x * 8.0 + vUv.y * 24.0));
             float alpha = (crest + shimmer) * waterBand * openWater;
             gl_FragColor = vec4(vec3(0.76, 0.93, 0.98), alpha);
           }
@@ -190,14 +203,26 @@ function PhotoSeaRipple() {
 function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   const source = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const image = useMemo(() => createCoastEdgeBlend(source, quality), [source, quality])
-  useEffect(() => () => { if (image !== source) image.dispose() }, [image, source])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(
+    BACKDROP_RADIUS - 0.82,
+    BACKDROP_RADIUS - 0.82,
+    BACKDROP_HEIGHT,
+    quality === 'mobile' ? 48 : 88,
+    1,
+    true,
+    Math.PI - FRONT_BAY_HALF_ANGLE,
+    FRONT_BAY_HALF_ANGLE * 2,
+  ), [quality])
+  useEffect(() => () => {
+    if (image !== source) image.dispose()
+    geometry.dispose()
+  }, [image, source, geometry])
   return (
     <>
-      <mesh position={[0, BACKDROP_CENTER_Y, -BACKDROP_RADIUS - 5]} raycast={noRaycast} rotation-y={0} renderOrder={-90} frustumCulled={false}>
-        <planeGeometry args={[BACKDROP_WIDTH, BACKDROP_HEIGHT]} />
+      <mesh geometry={geometry} position={[0, BACKDROP_CENTER_Y, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
         <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
-      <PhotoSeaRipple />
+      <PhotoSeaRipple quality={quality} />
     </>
   )
 }

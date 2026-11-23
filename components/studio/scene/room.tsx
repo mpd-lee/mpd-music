@@ -443,7 +443,7 @@ export function Room({ onFloorClick, quality = 'high' }: { onFloorClick: (e: Thr
 
       <StudioFoundation quality={quality} />
       <mesh position={[0, 0.092, 0]} rotation-x={-Math.PI / 2} receiveShadow onClick={onFloorClick} name="floor" userData={{ mpdFloor: true }}>
-        <planeGeometry args={[25.95, 19.85]} />
+        <planeGeometry args={[26.30, 20.20]} />
         <meshStandardMaterial map={floorTex} bumpMap={floorTex} bumpScale={0.018} roughness={0.42} metalness={0.025} side={THREE.DoubleSide} />
       </mesh>
 

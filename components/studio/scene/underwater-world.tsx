@@ -304,7 +304,9 @@ function createCleanUnderwaterTexture(source: THREE.Texture, quality: GraphicsTi
   ctx.filter = 'none'
   const frame = ctx.getImageData(0, 0, width, height)
   const pixels = frame.data
-  const band = Math.max(3, Math.floor(width * 0.010))
+  // Keep the seam blend very narrow: broad averaging made a visible soft strip.
+  // The seam itself is rotated behind the diver's default camera in UnderwaterDome.
+  const band = Math.max(2, Math.floor(width * 0.004))
   for (let y = 0; y < height; y += 1) {
     const li = y * width * 4
     const ri = (y * width + width - 1) * 4
@@ -344,11 +346,11 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
     if (texture !== source) texture.dispose()
     geometry.dispose()
   }, [texture, source, geometry])
-  useFrame((_, delta) => {
-    if (dome.current) dome.current.rotation.y += Math.min(delta, 0.05) * 0.00055
-  })
+  // SphereGeometry places its UV seam on a vertical meridian. Rotate that
+  // meridian to the -Z rear of the default over-the-shoulder camera so it cannot
+  // sit through the diver's forward view. Keep the 360 photo stationary.
   return (
-    <mesh ref={dome} geometry={geometry} raycast={noRaycast} renderOrder={-10} rotation-y={Math.PI} frustumCulled={false}>
+    <mesh ref={dome} geometry={geometry} raycast={noRaycast} renderOrder={-10} rotation-y={-Math.PI / 2} frustumCulled={false}>
       <meshBasicMaterial map={texture} side={THREE.BackSide} fog={false} depthWrite={false} toneMapped={false} />
     </mesh>
   )
@@ -911,15 +913,20 @@ function DiverMarineEscort({ playerPositionRef, quality }: {
     const dz = target.z - node.position.z
     if (Math.hypot(dx, dz) > 0.015) node.rotation.y = Math.atan2(dx, dz)
   })
-  const smallFish = quality === 'mobile' ? 5 : quality === 'balanced' ? 9 : 15
+  const smallFish = quality === 'mobile' ? 18 : quality === 'balanced' ? 30 : 45
+  const babyWhaleScale = quality === 'mobile' ? 0.34 : quality === 'balanced' ? 0.44 : 0.56
+  const reefSharkScale = quality === 'mobile' ? 0.42 : quality === 'balanced' ? 0.62 : 0.78
   return (
     <group ref={group} raycast={noRaycast} userData={{ mpdNoCollision: true }}>
-      <InstancedFishSchool count={smallFish} school={41} baseDepth={-2.4} spreadX={7.5} spreadZ={6.5} />
+      {/* A compact escort school follows the diver with the whole group. */}
+      <InstancedFishSchool count={smallFish} school={41} baseDepth={-2.4} spreadX={8.5} spreadZ={7.2} />
       <SeaTurtle position={[-3.6, -2.2, 3.8]} scale={quality === 'mobile' ? 0.68 : 0.92} depthY={-2.2} />
-      {quality !== 'mobile' && <MantaRay position={[4.4, -1.2, 2.6]} depthY={-1.2} />}
-      {quality !== 'mobile' && <LargeMarineAnimal kind="whale" position={[-8.5, -5.8, -10]} scale={0.48} phase={1.6} />}
-      {quality === 'high' && <LargeMarineAnimal kind="reef-shark" position={[8.5, -4.2, -5.5]} scale={0.9} phase={2.8} />}
-      {quality === 'high' && <LargeMarineAnimal kind="whale-shark" position={[-12, -10.5, -18]} scale={0.88} phase={3.6} />}
+      {quality !== 'mobile' && <SeaTurtle position={[5.8, -5.8, -4.5]} scale={0.64} depthY={-5.8} />}
+      <MantaRay position={[4.4, -1.2, 2.6]} depthY={-1.2} />
+      {quality === 'high' && <MantaRay position={[-7.5, -7.8, -13.5]} depthY={-7.8} />}
+      <LargeMarineAnimal kind="whale" position={[-8.5, -5.8, -10]} scale={babyWhaleScale} phase={1.6} />
+      <LargeMarineAnimal kind="reef-shark" position={[8.5, -4.2, -5.5]} scale={reefSharkScale} phase={2.8} />
+      {quality !== 'mobile' && <LargeMarineAnimal kind="whale-shark" position={[-12, -10.5, -18]} scale={0.72} phase={3.6} />}
       {quality === 'high' && <LargeMarineAnimal kind="whale" position={[-3.5, -8.5, -23]} scale={1.18} phase={5.1} />}
     </group>
   )
@@ -990,8 +997,10 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
   // The 2:1 photographic panorama already contains one continuous 360-degree
   // reef, natural rock arch and real-looking seabed. Do not cover it with a
   // synthetic floor slab or duplicate procedural cave/rock walls.
-  const heroFishCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 3 : 4
-  const schoolCounts = quality === 'mobile' ? [16, 8, 4] : quality === 'balanced' ? [28, 16, 8] : [44, 26, 14]
+  const heroFishCount = quality === 'mobile' ? 5 : quality === 'balanced' ? 7 : 9
+  // About five times the previous total population, still GPU-instanced in only
+  // three schools (two draw calls per school) to keep mobile rendering practical.
+  const schoolCounts = quality === 'mobile' ? [72, 44, 24] : quality === 'balanced' ? [132, 78, 50] : [220, 130, 70]
   const kelpCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 3 : 4
   const coralCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 3 : 4
   const coralPositions = useMemo(() => Array.from({ length: coralCount }, (_, i) => {
@@ -1029,7 +1038,7 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
       <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-16.5} spreadX={48} spreadZ={42} />
       <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-36.0} spreadX={58} spreadZ={54} />
       {Array.from({ length: heroFishCount }, (_, i) => (
-        <TropicalFish key={`hero-fish-${i}`} index={i % 2 === 0 ? i * 7 + 21 : i * 7 + 20} quality={quality} school={i % 3 + 1} baseDepth={-2.8 - (i % 3) * 1.0} />
+        <TropicalFish key={`hero-fish-${i}`} index={i % 3 === 0 ? i * 7 + 21 : i * 7 + 20} quality={quality} school={i % 3 + 1} baseDepth={-2.8 - (i % 3) * 1.0} />
       ))}
       {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} quality={quality} />}
 

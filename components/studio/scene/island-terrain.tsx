@@ -53,7 +53,9 @@ function buildIslandSurface(quality: GraphicsTier) {
   const insideStudioFloor = (index: number) => {
     const x = positions[index * 3]
     const z = positions[index * 3 + 2]
-    return Math.abs(x) <= 13.08 && Math.abs(z) <= 10.00
+    // The timber deck is 26.30 × 20.20 at y=0.145. Clip only triangles
+    // fully beneath that exact footprint, with a 1 cm numerical tolerance.
+    return Math.abs(x) <= 13.16 && Math.abs(z) <= 10.11
   }
   const addTriangleOutsideFloor = (a: number, b: number, c: number) => {
     if (!(insideStudioFloor(a) && insideStudioFloor(b) && insideStudioFloor(c))) {
