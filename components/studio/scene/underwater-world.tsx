@@ -633,7 +633,7 @@ function SeaTurtle({ position, scale = 1, depthY = -2.45 }: { position: [number,
   )
 }
 
-function MantaRay({ position, depthY = 1.15 }: { position: [number, number, number]; depthY?: number }) {
+function MantaRay({ position, depthY = 1.15, scale = 1 }: { position: [number, number, number]; depthY?: number; scale?: number }) {
   const root = useRef<THREE.Group>(null)
   const wings = useRef<THREE.Group>(null)
   useFrame((state) => {
@@ -644,7 +644,7 @@ function MantaRay({ position, depthY = 1.15 }: { position: [number, number, numb
     if (wings.current) wings.current.rotation.z = Math.sin(state.clock.elapsedTime * 1.8) * 0.18
   })
   return (
-    <group ref={root} raycast={noRaycast} userData={{ mpdNoCollision: true }}>
+    <group ref={root} scale={scale} raycast={noRaycast} userData={{ mpdNoCollision: true }}>
       <mesh scale={[0.56, 0.11, 0.9]}>
         <sphereGeometry args={[1, 24, 14]} />
         <meshStandardMaterial color="#253e55" roughness={0.44} />
@@ -895,39 +895,57 @@ function DiverMarineEscort({ playerPositionRef, quality }: {
   useFrame((state, delta) => {
     const node = group.current
     if (!node) return
-    // UnderwaterWorld is anchored at world [-34, -2.2, 14]. Convert the avatar's
-    // world position into this fixed reef group's local coordinates, then let a
-    // small escort school trail and orbit naturally rather than moving the reef.
+    // This whole companion group trails the diver in local underwater-world space.
     const player = playerPositionRef.current
     const time = state.clock.elapsedTime
     const localX = player.x + 34
     const localY = player.y + 2.2
     const localZ = player.z - 14
     const target = new THREE.Vector3(
-      localX + Math.sin(time * 0.14) * 3.2,
-      THREE.MathUtils.clamp(localY - 3.0 + Math.sin(time * 0.22) * 0.9, -54, -0.8),
-      localZ - 7.5 + Math.cos(time * 0.14) * 3.8,
+      localX + Math.sin(time * 0.16) * 2.4,
+      THREE.MathUtils.clamp(localY - 2.2 + Math.sin(time * 0.24) * 0.8, -54, -0.6),
+      localZ - 8.8 + Math.cos(time * 0.16) * 3.0,
     )
-    node.position.lerp(target, 1 - Math.exp(-Math.min(delta, 0.05) * 0.85))
+    node.position.lerp(target, 1 - Math.exp(-Math.min(delta, 0.05) * 1.35))
     const dx = target.x - node.position.x
     const dz = target.z - node.position.z
     if (Math.hypot(dx, dz) > 0.015) node.rotation.y = Math.atan2(dx, dz)
   })
-  const smallFish = quality === 'mobile' ? 18 : quality === 'balanced' ? 30 : 45
-  const babyWhaleScale = quality === 'mobile' ? 0.34 : quality === 'balanced' ? 0.44 : 0.56
-  const reefSharkScale = quality === 'mobile' ? 0.42 : quality === 'balanced' ? 0.62 : 0.78
+
+  const mobile = quality === 'mobile'
+  const turtles: [number, number, number][] = mobile
+    ? [[-4.2, -2.0, 4.0], [4.7, -5.2, -3.0], [-1.5, -10.0, -14.0]]
+    : quality === 'balanced'
+      ? [[-4.2, -2.0, 4.0], [4.7, -5.2, -3.0], [0.5, -8.8, -12.0], [-8.5, -13.2, 7.0]]
+      : [[-4.2, -2.0, 4.0], [4.7, -5.2, -3.0], [0.5, -8.8, -12.0], [-8.5, -13.2, 7.0], [9.0, -17.0, -23.0]]
+  const rays: [number, number, number][] = mobile
+    ? [[4.4, -1.5, 3.0], [-5.8, -7.8, -10.5], [9.0, -11.5, -18.0]]
+    : quality === 'balanced'
+      ? [[4.4, -1.5, 3.0], [-5.8, -7.8, -10.5], [9.0, -11.5, -18.0], [-11.5, -15.5, 5.5]]
+      : [[4.4, -1.5, 3.0], [-5.8, -7.8, -10.5], [9.0, -11.5, -18.0], [-11.5, -15.5, 5.5], [14.0, -18.0, -28.0]]
+  const escortFish = mobile ? 34 : quality === 'balanced' ? 52 : 72
+  const turtleScale = mobile ? 1.10 : quality === 'balanced' ? 1.25 : 1.38
+  const rayScale = mobile ? 1.34 : quality === 'balanced' ? 1.50 : 1.66
+  const sharkScale = mobile ? 0.74 : quality === 'balanced' ? 0.90 : 1.02
+  const babyWhaleScale = mobile ? 0.76 : quality === 'balanced' ? 0.90 : 1.02
+  const adultWhaleScale = mobile ? 1.34 : quality === 'balanced' ? 1.56 : 1.76
+
   return (
     <group ref={group} raycast={noRaycast} userData={{ mpdNoCollision: true }}>
-      {/* A compact escort school follows the diver with the whole group. */}
-      <InstancedFishSchool count={smallFish} school={41} baseDepth={-2.4} spreadX={8.5} spreadZ={7.2} />
-      <SeaTurtle position={[-3.6, -2.2, 3.8]} scale={quality === 'mobile' ? 0.68 : 0.92} depthY={-2.2} />
-      {quality !== 'mobile' && <SeaTurtle position={[5.8, -5.8, -4.5]} scale={0.64} depthY={-5.8} />}
-      <MantaRay position={[4.4, -1.2, 2.6]} depthY={-1.2} />
-      {quality === 'high' && <MantaRay position={[-7.5, -7.8, -13.5]} depthY={-7.8} />}
+      {/* A denser escort school, with recognisable large animals travelling beside the diver. */}
+      <InstancedFishSchool count={escortFish} school={41} baseDepth={-2.7} spreadX={9.2} spreadZ={8.4} />
+      {turtles.map((position, index) => (
+        <SeaTurtle key={`escort-turtle-${index}`} position={position} scale={turtleScale * (index === 0 ? 1 : 0.88)} depthY={position[1]} />
+      ))}
+      {rays.map((position, index) => (
+        <MantaRay key={`escort-ray-${index}`} position={position} depthY={position[1]} scale={rayScale * (index === 0 ? 1 : 0.88)} />
+      ))}
       <LargeMarineAnimal kind="whale" position={[-8.5, -5.8, -10]} scale={babyWhaleScale} phase={1.6} />
-      <LargeMarineAnimal kind="reef-shark" position={[8.5, -4.2, -5.5]} scale={reefSharkScale} phase={2.8} />
-      {quality !== 'mobile' && <LargeMarineAnimal kind="whale-shark" position={[-12, -10.5, -18]} scale={0.72} phase={3.6} />}
-      {quality === 'high' && <LargeMarineAnimal kind="whale" position={[-3.5, -8.5, -23]} scale={1.18} phase={5.1} />}
+      <LargeMarineAnimal kind="reef-shark" position={[8.5, -4.2, -5.5]} scale={sharkScale} phase={2.8} />
+      <LargeMarineAnimal kind="whale-shark" position={[-12, -10.5, -18]} scale={mobile ? 0.82 : quality === 'balanced' ? 1.00 : 1.12} phase={3.6} />
+      <LargeMarineAnimal kind="whale" position={[7.0, -9.5, -25]} scale={adultWhaleScale} phase={5.1} />
+      <LargeMarineAnimal kind="whale" position={[-11.0, -14.0, -32.0]} scale={mobile ? 0.92 : 1.12} phase={6.0} />
+      {quality === 'high' && <LargeMarineAnimal kind="reef-shark" position={[-15.0, -15.0, -28.0]} scale={0.96} phase={6.4} />}
     </group>
   )
 }
@@ -997,7 +1015,7 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
   // The 2:1 photographic panorama already contains one continuous 360-degree
   // reef, natural rock arch and real-looking seabed. Do not cover it with a
   // synthetic floor slab or duplicate procedural cave/rock walls.
-  const heroFishCount = quality === 'mobile' ? 5 : quality === 'balanced' ? 7 : 9
+  const heroFishCount = quality === 'mobile' ? 10 : quality === 'balanced' ? 15 : 20
   // About five times the previous total population, still GPU-instanced in only
   // three schools (two draw calls per school) to keep mobile rendering practical.
   const schoolCounts = quality === 'mobile' ? [72, 44, 24] : quality === 'balanced' ? [132, 78, 50] : [220, 130, 70]
@@ -1037,6 +1055,12 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
       <InstancedFishSchool count={schoolCounts[0]} school={3} baseDepth={-3.5} spreadX={32} spreadZ={28} />
       <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-16.5} spreadX={48} spreadZ={42} />
       <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-36.0} spreadX={58} spreadZ={54} />
+      {/* Distant silhouettes add scale and life beyond the foreground escort. */}
+      <SeaTurtle position={[24, -11.5, -48]} scale={quality === 'mobile' ? 0.82 : 1.02} depthY={-11.5} />
+      <MantaRay position={[-32, -8.5, -52]} depthY={-8.5} scale={quality === 'mobile' ? 0.95 : 1.18} />
+      <LargeMarineAnimal kind="whale" position={[40, -17.5, -72]} scale={quality === 'mobile' ? 0.78 : 1.08} phase={2.1} />
+      <LargeMarineAnimal kind="whale-shark" position={[-46, -14.5, -66]} scale={quality === 'mobile' ? 0.68 : 0.88} phase={4.2} />
+      {quality !== 'mobile' && <LargeMarineAnimal kind="reef-shark" position={[52, -7.0, -38]} scale={0.94} phase={5.4} />}
       {Array.from({ length: heroFishCount }, (_, i) => (
         <TropicalFish key={`hero-fish-${i}`} index={i % 3 === 0 ? i * 7 + 21 : i * 7 + 20} quality={quality} school={i % 3 + 1} baseDepth={-2.8 - (i % 3) * 1.0} />
       ))}

@@ -59,7 +59,7 @@ export function GuestbookPanel({ open, onClose, entries, storage, addEntry, dele
   return (
     <aside
       aria-label="방명록"
-      className="fixed right-4 top-16 z-40 flex max-h-[calc(100dvh-14rem)] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-neutral-950/85 text-white shadow-2xl backdrop-blur-md"
+      className="mpd-guestbook-panel fixed right-4 top-16 z-40 flex max-h-[calc(100dvh-14rem)] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-neutral-950/85 text-white shadow-2xl backdrop-blur-md"
     >
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
         <div>

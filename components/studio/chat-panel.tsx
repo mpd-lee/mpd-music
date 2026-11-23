@@ -32,7 +32,7 @@ type ChatPanelProps = {
 }
 
 const GLOBAL_KEY = 'mpd-studio-global-preview'
-const MAX_FILE_SIZE = 50 * 1024 * 1024
+const MAX_FILE_SIZE = 50 * 1024 * 1024 // 50 MiB; matches the default chat-files bucket limit
 const TUS_THRESHOLD = 6 * 1024 * 1024
 
 function readLocal(key: string): ChatMessage[] {
@@ -58,6 +58,45 @@ function formatBytes(bytes?: number | null) {
 
 function safeFileName(name: string) {
   return name.normalize('NFKD').replace(/[^a-zA-Z0-9._()\-]/g, '_').replace(/_+/g, '_').slice(0, 120) || 'upload'
+}
+
+function explainSupabaseUploadError(error: unknown, stage: 'auth' | 'storage' | 'message') {
+  const candidate = error as { message?: unknown; code?: unknown; status?: unknown }
+  const message = typeof candidate?.message === 'string' ? candidate.message : String(error ?? '알 수 없는 오류')
+  const code = typeof candidate?.code === 'string' ? candidate.code : ''
+  const status = typeof candidate?.status === 'number' ? candidate.status : 0
+  const lower = `${code} ${message}`.toLowerCase()
+
+  if (lower.includes('anonymous_provider_disabled') || /anonymous.{0,30}(disabled|not enabled)/i.test(message)) {
+    return 'Supabase에서 익명 로그인이 비활성화되어 있습니다. Supabase Dashboard → Authentication → Sign In / Providers → Anonymous Sign-Ins를 켜고 다시 시도해 주세요.'
+  }
+  if (/captcha|captcha_token/i.test(lower)) {
+    return 'Supabase 익명 로그인에서 CAPTCHA 검증이 요구되거나 토큰이 유효하지 않습니다. Supabase Dashboard의 Authentication → Bot and Abuse Protection 설정을 확인해 주세요.'
+  }
+  if (status === 429 || /rate limit|too many requests/i.test(lower)) {
+    return '익명 로그인 요청이 잠시 제한되었습니다. 잠시 후 다시 시도하고, 자동 반복 요청이나 새로고침을 연속해서 실행하지 마세요.'
+  }
+  if (/invalid api key|invalidapikey|apikey.*invalid|jwt malformed|invalid jwt/i.test(message) || status === 401) {
+    return 'Supabase 인증 키가 거부되었습니다. .env.local의 프로젝트 URL과 같은 프로젝트에서 발급한 공개용 publishable 또는 anon 키인지 확인하고, service_role/secret 키를 브라우저용 환경변수에 넣지 마세요.'
+  }
+  if (/invalid url|failed to parse url|malformed url/i.test(message)) {
+    return 'Supabase URL 형식이 올바르지 않습니다. NEXT_PUBLIC_SUPABASE_URL에는 https://프로젝트ID.supabase.co 형태의 프로젝트 기본 주소만 입력해 주세요. /rest/v1 또는 /auth/v1 경로를 붙이지 마세요.'
+  }
+  if (/failed to fetch|networkerror|load failed|fetch failed/i.test(message)) {
+    return 'Supabase 서버에 연결하지 못했습니다. 이 오류만으로 익명 로그인이 꺼졌다고 판단할 수 없습니다. 인터넷 연결과 .env.local의 NEXT_PUBLIC_SUPABASE_URL(프로젝트 기본 주소), NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY 또는 NEXT_PUBLIC_SUPABASE_ANON_KEY를 확인하고, 광고 차단/보안 확장 프로그램이 Supabase 요청을 막는지 확인해 주세요.'
+  }
+  if (/row.level security|permission denied|not authorized|violates.*policy/i.test(message) || status === 403) {
+    if (stage === 'message') return '파일 저장은 진행됐지만 채팅 메시지 테이블의 RLS 정책이 등록을 막았습니다. global_messages 또는 direct_messages의 익명 사용자 INSERT 정책을 확인해 주세요.'
+    if (stage === 'storage') return 'Supabase Storage 권한 정책이 업로드를 막았습니다. MPD_CHAT_STORAGE_SETUP.sql을 SQL Editor에서 실행했는지, bucket_id와 UUID 폴더 정책이 맞는지 확인해 주세요.'
+    return 'Supabase 인증 권한 오류입니다. Authentication에서 Anonymous Sign-Ins가 켜져 있는지 확인해 주세요.'
+  }
+  if (/bucket.{0,20}(not found|does not exist)/i.test(message)) {
+    return 'Supabase Storage에 chat-files 버킷이 없습니다. 제공된 MPD_CHAT_STORAGE_SETUP.sql을 Supabase SQL Editor에서 실행해 주세요.'
+  }
+  if (status === 413 || /payload too large|file size|maximum.*size/i.test(message)) {
+    return '선택한 파일이 현재 Supabase 프로젝트의 파일 크기 제한을 초과했습니다. 더 작은 파일로 다시 시도해 주세요.'
+  }
+  return `${message} (Supabase Authentication, chat-files 버킷 및 Storage 정책을 확인해 주세요.)`
 }
 
 function chatTopic(userId: string, targetId: string | null) {
@@ -304,20 +343,18 @@ export function ChatPanel({
 
 
   const uploadFile = useCallback(async (file: File) => {
-    if (!userId) return
     if (file.size > MAX_FILE_SIZE) {
-      window.alert(`현재 프로젝트는 파일 1개당 최대 50MB로 설정되어 있습니다.\n선택한 파일: ${formatBytes(file.size)}`)
+      window.alert(`현재 MPD 채팅 업로드는 파일 1개당 최대 50MiB입니다. Supabase 프로젝트의 전체 제한 또는 버킷 제한이 더 낮으면 그 제한이 우선 적용됩니다.\n선택한 파일: ${formatBytes(file.size)}`)
       if (fileRef.current) fileRef.current.value = ''
       return
     }
     const supabase = getSupabaseClient()
-    if (!supabase || connection !== 'online') {
-      window.alert('파일 업로드는 Supabase 실시간 연결 상태에서 사용할 수 있습니다.')
+    if (!supabase) {
+      setChatNotice('Supabase URL과 공개 키를 설정해야 파일을 보낼 수 있습니다.')
       if (fileRef.current) fileRef.current.value = ''
       return
     }
 
-    const path = `${userId}/${Date.now()}-${safeFileName(file.name)}`
     const contentType = file.type || 'application/octet-stream'
     const directTarget = isDirect ? target : null
     const tableName = directTarget ? 'direct_messages' : 'global_messages'
@@ -325,7 +362,23 @@ export function ChatPanel({
     setUploadProgress(0)
     setChatNotice('')
 
+    let uploadStage: 'auth' | 'storage' | 'message' = 'auth'
     try {
+      // Storage does not depend on the Realtime WebSocket. Resolve a real Supabase
+      // Auth UUID here even when presence/realtime is reconnecting or offline.
+      const { data: initialSession, error: initialSessionError } = await supabase.auth.getSession()
+      if (initialSessionError) throw initialSessionError
+      let authUser = initialSession.session?.user ?? null
+      if (!authUser) {
+        const { data, error } = await supabase.auth.signInAnonymously()
+        if (error) throw error
+        authUser = data.user ?? null
+      }
+      if (!authUser?.id) throw new Error('Supabase 로그인 세션을 찾지 못했습니다. 페이지를 새로고침하고 다시 시도해 주세요.')
+      const uploadUserId = authUser.id
+      const path = `${uploadUserId}/${Date.now()}-${safeFileName(file.name)}`
+
+      uploadStage = 'storage'
       if (file.size > TUS_THRESHOLD) {
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession()
         if (sessionError) throw sessionError
@@ -365,8 +418,9 @@ export function ChatPanel({
       }
 
       const { data: publicUrl } = supabase.storage.from('chat-files').getPublicUrl(path)
+      uploadStage = 'message'
       const baseRow = {
-        sender_id: userId,
+        sender_id: uploadUserId,
         sender_name: userName,
         content: `📎 ${file.name}`.slice(0, 300),
         file_url: publicUrl.publicUrl,
@@ -384,13 +438,13 @@ export function ChatPanel({
       setUploadProgress(100)
     } catch (error) {
       console.error('[MPD Studio] file upload failed:', error)
-      setChatNotice(error instanceof Error ? `파일 업로드 실패: ${error.message}` : '파일 업로드에 실패했습니다. Storage 버킷과 정책을 확인해 주세요.')
+      setChatNotice(`파일 업로드 실패: ${explainSupabaseUploadError(error, uploadStage)}`)
     } finally {
       setUploading(false)
       window.setTimeout(() => setUploadProgress(null), 900)
       if (fileRef.current) fileRef.current.value = ''
     }
-  }, [connection, isDirect, target, userId, userName])
+  }, [isDirect, target, userName])
 
   const cleanupVoiceCall = useCallback(() => {
     peerConnectionRef.current?.close()
@@ -593,7 +647,7 @@ export function ChatPanel({
       {!minimized && (
         <section
           ref={panelRef}
-          className="fixed right-3 top-[76px] z-30 flex h-[min(70dvh,640px)] w-[min(410px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-neutral-950/95 text-white shadow-2xl backdrop-blur-xl sm:w-[410px]"
+          className="mpd-chat-panel fixed left-3 top-[132px] z-30 flex h-[min(62dvh,580px)] max-[820px]:h-[min(44dvh,360px)] w-[min(390px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-neutral-950/95 text-white shadow-2xl backdrop-blur-xl sm:w-[390px]"
           style={panelPosition ? { left: panelPosition.x, top: panelPosition.y, right: 'auto' } : undefined}
         >
           <header className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
@@ -635,7 +689,7 @@ export function ChatPanel({
           </div>
 
 
-          {!isSupabaseConfigured() && <p className="border-b border-amber-300/20 bg-amber-300/10 px-3 py-2 text-[10px] leading-relaxed text-amber-100">Supabase 키를 설정하면 다른 방문자와 실시간 단체 채팅·1:1 채팅·파일 전송을 사용할 수 있습니다.</p>}
+          {!isSupabaseConfigured() && <div className="flex items-center gap-2 border-b border-amber-300/15 bg-amber-300/5 px-3 py-1.5 text-[10px] text-amber-100"><span className="size-1.5 shrink-0 rounded-full bg-amber-300" /><span>Supabase 서버 설정 필요 · 다른 방문자 접속과 무관</span><span className="ml-auto text-[9px] text-neutral-500">환경변수 확인</span></div>}
           {connection === 'online' && <p className="border-b border-white/5 px-3 py-1.5 text-[9px] text-neutral-500">단체 채팅·1:1 채팅 파일 첨부 최대 50MB · 6MB 초과 파일은 이어 올리기 지원</p>}
           {chatNotice && <p className="border-b border-rose-300/20 bg-rose-300/5 px-3 py-2 text-[10px] leading-relaxed text-rose-200">{chatNotice}</p>}
           {uploading && <div className="border-b border-white/5 px-3 py-1.5 text-[10px] text-amber-200">파일 업로드 중 {uploadProgress ?? 0}%</div>}
@@ -666,13 +720,13 @@ export function ChatPanel({
 
           <form onSubmit={sendMessage} className="flex items-center gap-2 border-t border-white/10 p-2.5">
             <input ref={fileRef} type="file" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file) }} />
-            <button type="button" disabled={uploading || connection !== 'online'} onClick={() => fileRef.current?.click()} aria-label="파일 첨부" title="단체 채팅·1:1 채팅에 최대 50MB 파일 첨부" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-neutral-300 transition hover:bg-white/10 disabled:opacity-40"><FileUp className="size-4" /></button>
+            <button type="button" disabled={uploading || !isSupabaseConfigured()} onClick={() => fileRef.current?.click()} aria-label="파일 첨부" title="Supabase Storage 설정 후 단체 채팅·1:1 채팅에 파일 첨부" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/5 text-neutral-300 transition hover:bg-white/10 disabled:opacity-40"><FileUp className="size-4" /></button>
             <input value={draft} onChange={(event) => setDraft(event.target.value.slice(0, 300))} placeholder={isDirect ? `${target?.name ?? '상대방'}에게 메시지...` : '전체에게 메시지 보내기...'} maxLength={300} className="min-w-0 flex-1 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none placeholder:text-neutral-500 focus:border-amber-300/60" />
             <button type="submit" disabled={!draft.trim() || sending || connection === 'connecting'} aria-label="메시지 보내기" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-amber-300 text-neutral-950 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-40"><Send className="size-4" /></button>
           </form>
         </section>
       )}
-      {minimized && <button type="button" onClick={() => setMinimized(false)} className="fixed bottom-[5.5rem] left-4 z-30 flex items-center gap-2 rounded-full border border-amber-200/25 bg-neutral-950/90 px-4 py-3 text-white shadow-2xl backdrop-blur-xl transition hover:scale-[1.02] hover:border-amber-200/50" aria-label="채팅방 열기" title="Global Chat 열기">
+      {minimized && <button type="button" onClick={() => setMinimized(false)} className="fixed left-4 top-[82px] z-30 flex items-center gap-2 rounded-full border border-amber-200/25 bg-neutral-950/90 px-4 py-3 text-white shadow-2xl backdrop-blur-xl transition hover:scale-[1.02] hover:border-amber-200/50" aria-label="채팅방 열기" title="Global Chat 열기">
         <span className="relative flex size-7 items-center justify-center rounded-full bg-amber-300 text-neutral-950">{isDirect ? <MessageCircle className="size-4" /> : <Users className="size-4" />}<span className="absolute -right-1 -top-1 size-2.5 rounded-full border border-neutral-950 bg-emerald-400" /></span>
         <span className="text-left"><span className="block text-xs font-semibold">{isDirect ? `${target?.name ?? '사용자'} · 1:1` : 'Global Chat'}</span><span className="block text-[10px] text-neutral-400">채팅 열기</span></span>
       </button>}

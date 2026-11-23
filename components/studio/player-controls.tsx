@@ -20,8 +20,8 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   const publish = useCallback(() => {
     const keyX = (keys.current.has('d') || keys.current.has('arrowright') ? 1 : 0)
       - (keys.current.has('a') || keys.current.has('arrowleft') ? 1 : 0)
-    const keyZ = (keys.current.has('s') || keys.current.has('arrowdown') ? 1 : 0)
-      - (keys.current.has('w') || keys.current.has('arrowup') ? 1 : 0)
+    const keyZ = (keys.current.has('s') || (!underwater && keys.current.has('arrowdown')) ? 1 : 0)
+      - (keys.current.has('w') || (!underwater && keys.current.has('arrowup')) ? 1 : 0)
     let x = keyX + stick.current.x
     let z = keyZ + stick.current.z
     const length = Math.hypot(x, z)
@@ -44,9 +44,9 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     const down = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
       if (isTyping(event.target) || document.body.dataset.mpdPianoOpen === 'true') return
-      if (underwater && (event.code === 'Space' || key === 'shift')) {
+      if (underwater && (event.code === 'Space' || event.code === 'ShiftLeft' || key === 'arrowup' || key === 'arrowdown')) {
         event.preventDefault()
-        vertical.current = event.code === 'Space' ? 1 : -1
+        vertical.current = (event.code === 'Space' || key === 'arrowup') ? 1 : -1
         publish()
         return
       }
@@ -57,7 +57,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     }
     const up = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
-      if (underwater && (event.code === 'Space' || key === 'shift')) { vertical.current = 0; publish(); return }
+      if (underwater && (event.code === 'Space' || event.code === 'ShiftLeft' || key === 'arrowup' || key === 'arrowdown')) { vertical.current = 0; keys.current.delete(key); publish(); return }
       if (!movementKeys.has(key)) return
       keys.current.delete(key)
       publish()
@@ -114,7 +114,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     <>
       <div className="mpd-desktop-move-hint" aria-hidden="true">
         {underwater
-          ? <><span>W A S D</span> 수평 수영 · <span>Space</span> 상승 · <span>Shift</span> 하강 · 마우스 클릭으로 3D 목적지 이동</>
+          ? <><span>W A S D</span> 수평 수영 · <span>↑ / Space</span> 상승 · <span>↓ / Left Shift</span> 하강 · 화면 위/아래 터치로 깊이 이동</>
           : <><span>W A S D</span> 또는 방향키로 이동 · 마우스로 바닥을 누르면 해당 위치로 이동</>}
       </div>
       <div className="mpd-mobile-controls" aria-label="모바일 이동 조이스틱">
@@ -141,9 +141,9 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
         </div>
         {underwater && (
           <div className="mpd-dive-axis" aria-label="수중 위아래 이동">
-            <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowUp size={16} /> 상승</button>
-            <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowDown size={16} /> 하강</button>
-            <small>PC: Space / Shift · 화면을 위·아래로 눌러 목표 깊이 이동</small>
+            <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowUp size={13} /> 상승</button>
+            <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowDown size={13} /> 하강</button>
+            <small>두 손가락: 시야 줌</small>
           </div>
         )}
       </div>

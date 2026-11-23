@@ -99,10 +99,16 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   useEffect(() => {
     if (!controls || !root.current) return
     const pos = root.current.position
-    // Re-enter both realms from a stable over-the-shoulder view, never a top-down camera.
-    const targetHeight = underwaterMode ? 1.42 : 2.35
-    const cameraHeight = underwaterMode ? 2.18 : 3.15
-    const cameraBack = underwaterMode ? 7.15 : 8.5
+    const touchLayout = window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
+    // Always start behind the diver. Mobile begins a little farther away so the
+    // avatar does not dominate a narrow screen; pinch zoom can then move freely.
+    const targetHeight = underwaterMode ? 1.38 : 2.35
+    const cameraHeight = underwaterMode
+      ? (touchLayout ? 2.48 : 2.20)
+      : (touchLayout ? 3.35 : 3.15)
+    const cameraBack = underwaterMode
+      ? (touchLayout ? 12.6 : 9.4)
+      : (touchLayout ? 10.0 : 8.5)
     const facing = root.current.rotation.y
     controls.target.set(pos.x, pos.y + targetHeight, pos.z)
     camera.position.set(
@@ -228,7 +234,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
 
     if (underwaterMode && Math.abs(input.y ?? 0) > 0.04) {
       arrived.current = true
-      const verticalStep = THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * 4.9 * dt
+      const verticalStep = THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * 6.8 * dt
       const candidateY = THREE.MathUtils.clamp(g.position.y + verticalStep, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
       // Free vertical buoyancy: reef colliders must never trap the diver.
       g.position.y = candidateY
@@ -249,7 +255,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       const direction = right.multiplyScalar(input.x).addScaledVector(forward, -input.z)
       if (direction.lengthSq() > 0.001) {
         direction.normalize()
-        const speed = underwaterMode ? 5.35 : SPEED
+        const speed = underwaterMode ? 7.4 : SPEED
         const displacement = direction.clone().multiplyScalar(speed * dt)
         if (underwaterMode) g.position.add(displacement)
         else moveWithCollision(g.position, displacement, colliders, { radius: 0.28, height: 1.72 })
@@ -276,7 +282,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
           g.rotation.y += diff * Math.min(1, dt * 10)
         }
         // Keep click-to-move responsive while the avatar smoothly turns toward the destination.
-        const moveSpeed = underwaterMode ? 4.45 : swimming.current && g.position.y < -0.8 ? 3.35 : swimming.current ? 3.65 : SPEED
+        const moveSpeed = underwaterMode ? 7.0 : swimming.current && g.position.y < -0.8 ? 3.8 : swimming.current ? 4.0 : SPEED
         const step = Math.min(dist, moveSpeed * dt)
         const movement = new THREE.Vector3((dx / dist) * step, underwaterMode ? (dy / dist) * step : 0, (dz / dist) * step)
         if (underwaterMode) g.position.add(movement)

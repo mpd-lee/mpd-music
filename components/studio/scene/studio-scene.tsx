@@ -316,7 +316,7 @@ export function StudioScene({
       const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.5, 0.5)
       // Screen-space intent is stable on both mouse and touch: upper taps ascend,
       // lower taps dive, while a tap near the center primarily swims forward.
-      const verticalDelta = THREE.MathUtils.clamp(pointerY * 4.2 + rayVertical * 0.65, -4.6, 4.6)
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 6.4 + rayVertical * 0.85, -7.2, 7.2)
       const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
 
       const horizontalDirection = e.ray.direction.clone()
@@ -328,7 +328,7 @@ export function StudioScene({
       }
       // Upper/lower taps prioritise vertical movement; middle taps swim farther
       // along the camera-facing horizontal direction.
-      const horizontalDistance = 4.0 + (1 - Math.abs(pointerY)) * 7.5
+      const horizontalDistance = 6.0 + (1 - Math.abs(pointerY)) * 12.0
       const x = THREE.MathUtils.clamp(current.x + horizontalDirection.x * horizontalDistance, -146, 78)
       const z = THREE.MathUtils.clamp(current.z + horizontalDirection.z * horizontalDistance, -98, 126)
       setTravel({ position: new THREE.Vector3(x, swimY, z), sit: false })
@@ -414,7 +414,7 @@ export function StudioScene({
         dpr={Math.min(graphics.dpr, adaptiveDpr)}
         performance={{ min: 0.45, max: 1, debounce: 180 }}
         gl={{ antialias: graphics.antialias, powerPreference: 'high-performance', precision: 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 1.12 : 1.04, stencil: false, preserveDrawingBuffer: false }}
-        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: 48, near: 0.1, far: 1200 }}
+        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: graphicsTier === 'mobile' ? 52 : 48, near: 0.1, far: 1200 }}
         onPointerMissed={() => { document.body.style.cursor = 'auto' }}
       >
         <color attach="background" args={[underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7']} />
@@ -501,11 +501,15 @@ export function StudioScene({
           enablePan={false}
           enableDamping
           dampingFactor={0.08}
-          rotateSpeed={graphicsTier === 'mobile' ? 0.48 : 0.68}
-          minDistance={underwater ? (graphicsTier === 'mobile' ? 6.2 : 5.8) : graphicsTier === 'mobile' ? 4.2 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 10.8 : 11.8) : graphicsTier === 'mobile' ? 48 : 54}
-          minPolarAngle={underwater ? 0.46 : 1.00}
-          maxPolarAngle={underwater ? 2.64 : 1.86}
+          rotateSpeed={graphicsTier === 'mobile' ? 0.64 : 0.74}
+          enableZoom
+          zoomSpeed={1.12}
+          minDistance={underwater ? (graphicsTier === 'mobile' ? 5.1 : 4.8) : graphicsTier === 'mobile' ? 4.0 : 3.8}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 34 : graphicsTier === 'balanced' ? 30 : 28) : graphicsTier === 'mobile' ? 52 : 56}
+          // Outdoors: keep the camera close to the horizon so looking upward
+          // cannot pass through the ground. Underwater remains a free 3D orbit.
+          minPolarAngle={underwater ? 0.70 : 1.34}
+          maxPolarAngle={underwater ? 2.45 : 1.60}
           target={DEFAULT_ORBIT_TARGET}
         />
       </Canvas>
