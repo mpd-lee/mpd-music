@@ -1,12 +1,11 @@
 'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
-import { RoundedBox, Sky, useTexture } from '@react-three/drei'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { RoundedBox, useTexture } from '@react-three/drei'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { createWoodFloorTexture } from '@/lib/textures'
 import type { GraphicsTier } from '@/lib/graphics-quality'
-import { createHorizontalEdgeFadeTexture } from '@/lib/background-blend'
 
 export const ROOM = { halfX: 12, halfZ: 9, height: 8 }
 const GLASS_TOP = 7.55
@@ -29,6 +28,33 @@ function DolbyCeilingSpeaker({ position }: { position: [number, number, number] 
         <torusGeometry args={[0.13, 0.012, 10, 32]} />
         <meshStandardMaterial color="#bca36f" metalness={0.8} roughness={0.22} />
       </mesh>
+    </group>
+  )
+}
+
+
+function SolarPanelUnit({ position, rotationZ = 0 }: { position: [number, number, number]; rotationZ?: number }) {
+  return (
+    <group position={position} rotation-z={rotationZ} raycast={noRaycast}>
+      <RoundedBox args={[3.35, 0.105, 2.05]} radius={0.07} smoothness={4} castShadow>
+        <meshStandardMaterial color="#26323a" metalness={0.82} roughness={0.28} />
+      </RoundedBox>
+      <mesh position={[0, 0.058, 0]} rotation-x={-Math.PI / 2}>
+        <planeGeometry args={[3.17, 1.88]} />
+        <meshPhysicalMaterial color="#173f61" metalness={0.72} roughness={0.24} clearcoat={0.72} clearcoatRoughness={0.18} />
+      </mesh>
+      {Array.from({ length: 6 }, (_, i) => (
+        <mesh key={`solar-col-${i}`} position={[-1.32 + i * 0.528, 0.064, 0]}>
+          <boxGeometry args={[0.012, 0.012, 1.86]} />
+          <meshStandardMaterial color="#b4c8d4" metalness={0.85} roughness={0.3} />
+        </mesh>
+      ))}
+      {Array.from({ length: 4 }, (_, i) => (
+        <mesh key={`solar-row-${i}`} position={[0, 0.066, -0.72 + i * 0.48]}>
+          <boxGeometry args={[3.12, 0.012, 0.012]} />
+          <meshStandardMaterial color="#a9c2d2" metalness={0.82} roughness={0.32} />
+        </mesh>
+      ))}
     </group>
   )
 }
@@ -97,6 +123,14 @@ function VaultedCeiling({ quality }: { quality: GraphicsTier }) {
         </group>
       ))}
 
+      {/* Exterior photovoltaic panels: two sun-facing roof banks, visible from outside. */}
+      {[-7.2, -3.6, 0, 3.6, 7.2].map((z) => (
+        <group key={`solar-row-${z}`}>
+          <SolarPanelUnit position={[-9.2, 8.72, z]} rotationZ={0.237} />
+          <SolarPanelUnit position={[9.2, 8.72, z]} rotationZ={-0.237} />
+        </group>
+      ))}
+
       {/* Five overhead Atmos-style speakers: one centered and four around the room corners. */}
       <DolbyCeilingSpeaker position={[0, 9.95, -0.8]} />
       <DolbyCeilingSpeaker position={[-7.45, 8.68, -5.45]} />
@@ -133,96 +167,99 @@ function VaultedCeiling({ quality }: { quality: GraphicsTier }) {
   )
 }
 
-function buildFrontCoastArc(quality: GraphicsTier) {
-  const segments = quality === 'mobile' ? 28 : quality === 'balanced' ? 48 : 72
-  const rows = quality === 'mobile' ? 2 : 4
-  const radius = 108
-  const bottom = -26
-  const top = 123
-  const halfArc = Math.PI * 0.485 // 174.6 degrees: ocean and coastline stay in the forward view.
-  const positions: number[] = []
-  const uvs: number[] = []
-  const indices: number[] = []
-
-  for (let row = 0; row <= rows; row += 1) {
-    const v = row / rows
-    const y = bottom + (top - bottom) * v
-    for (let segment = 0; segment <= segments; segment += 1) {
-      const u = segment / segments
-      const angle = (u * 2 - 1) * halfArc
-      positions.push(Math.sin(angle) * radius, y, -Math.cos(angle) * radius)
-      uvs.push(u, v)
+function AtmosphereFallback() {
+  const vertexShader = `
+    varying vec3 vDirection;
+    void main() {
+      vDirection = normalize(position);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
-  }
-
-  const stride = segments + 1
-  for (let row = 0; row < rows; row += 1) {
-    for (let segment = 0; segment < segments; segment += 1) {
-      const a = row * stride + segment
-      const b = a + 1
-      const c = a + stride
-      const d = c + 1
-      indices.push(a, c, b, b, c, d)
+  `
+  const fragmentShader = `
+    varying vec3 vDirection;
+    void main() {
+      float h = clamp(normalize(vDirection).y, -1.0, 1.0);
+      vec3 horizon = vec3(0.52, 0.72, 0.82);
+      vec3 blue = vec3(0.18, 0.46, 0.70);
+      vec3 deep = vec3(0.09, 0.25, 0.43);
+      float upper = smoothstep(-0.08, 0.58, h);
+      vec3 sky = mix(blue, deep, smoothstep(0.55, 1.0, h) * 0.22);
+      sky = mix(horizon, sky, upper);
+      gl_FragColor = vec4(sky, 1.0);
     }
-  }
-
-  const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
-  geometry.setIndex(indices)
-  geometry.computeVertexNormals()
-  geometry.computeBoundingSphere()
-  return geometry
-}
-
-function EnvironmentBackdrop({ quality }: { quality: GraphicsTier }) {
-  // One 2:1 coastal panorama is mapped onto a broad curved 174-degree screen
-  // facing the front glass. The rear 186 degrees are deliberately left open
-  // for the actual 3D forest, so no blurred photo strip wraps around the room.
-  const coast = useTexture(quality === 'mobile'
-    ? '/images/mpd-front-coastal-bay-mobile.webp'
-    : '/images/mpd-front-coastal-bay.webp')
-  const geometry = useMemo(() => buildFrontCoastArc(quality), [quality])
-  const edgeFade = useMemo(() => createHorizontalEdgeFadeTexture(256, 0.12), [])
-
-  useEffect(() => () => geometry.dispose(), [geometry])
-
-  useEffect(() => {
-    coast.colorSpace = THREE.SRGBColorSpace
-    coast.wrapS = THREE.ClampToEdgeWrapping
-    coast.wrapT = THREE.ClampToEdgeWrapping
-    coast.anisotropy = quality === 'mobile' ? 4 : quality === 'balanced' ? 8 : 12
-    coast.needsUpdate = true
-  }, [coast, quality])
-
-  useEffect(() => () => edgeFade.dispose(), [edgeFade])
-
+  `
   return (
-    <>
-      {/* A continuous procedural sky remains behind the coastal arc. The alpha-feathered edges blend into the sky and real 3D trees. */}
-      <mesh geometry={geometry} position={[0, 0, 0]} raycast={noRaycast} renderOrder={0}>
-        <meshBasicMaterial map={coast} alphaMap={edgeFade} side={THREE.DoubleSide} transparent alphaTest={0.008} toneMapped={false} depthWrite={false} depthTest fog={false} />
-      </mesh>
-    </>
+    <mesh position={[0, 3.25, 0]} renderOrder={-110} raycast={noRaycast} frustumCulled={false}>
+      <sphereGeometry args={[420, 32, 20]} />
+      <shaderMaterial vertexShader={vertexShader} fragmentShader={fragmentShader} side={THREE.BackSide} depthWrite={false} depthTest={false} toneMapped={false} />
+    </mesh>
   )
 }
 
-function StudioFoundation() {
+
+function makeGrassBankGeometry(axis: 'x' | 'z', side: -1 | 1, inner: number, outer: number, yTop: number, yBottom: number, halfLength: number) {
+  const geometry = new THREE.BufferGeometry()
+  const positions = axis === 'x'
+    ? [side * inner, yTop, -halfLength, side * inner, yTop, halfLength, side * outer, yBottom, -halfLength, side * outer, yBottom, halfLength]
+    : [-halfLength, yTop, side * inner, halfLength, yTop, side * inner, -halfLength, yBottom, side * outer, halfLength, yBottom, side * outer]
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 5, 1.7, 0, 1.7, 5], 2))
+  geometry.setIndex([0, 2, 1, 2, 3, 1])
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function StudioFoundation({ quality }: { quality: GraphicsTier }) {
+  const grass = useTexture(quality === 'mobile' ? '/images/mpd-natural-grass-mobile.webp' : '/images/mpd-natural-grass.webp')
+  const banks = useMemo(() => [
+    makeGrassBankGeometry('x', -1, 12.60, 18.65, -0.015, -4.45, 13.10),
+    makeGrassBankGeometry('x', 1, 12.60, 18.65, -0.015, -4.45, 13.10),
+    makeGrassBankGeometry('z', -1, 9.55, 15.75, -0.015, -4.45, 17.70),
+    makeGrassBankGeometry('z', 1, 9.55, 15.75, -0.015, -4.45, 17.70),
+  ], [])
+  useEffect(() => {
+    grass.colorSpace = THREE.SRGBColorSpace
+    grass.wrapS = THREE.RepeatWrapping
+    grass.wrapT = THREE.RepeatWrapping
+    grass.repeat.set(1, 1)
+    grass.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 8 : 12
+    grass.needsUpdate = true
+  }, [grass, quality])
+  useEffect(() => () => banks.forEach((geometry) => geometry.dispose()), [banks])
   const buttresses = [
     { x: -12.65, z: -9.55, r: 0.12 }, { x: 0, z: -9.8, r: -0.08 }, { x: 12.65, z: -9.55, r: -0.12 },
     { x: -12.85, z: -2.8, r: 0.08 }, { x: 12.85, z: 2.8, r: -0.08 },
     { x: -12.65, z: 9.55, r: -0.12 }, { x: 0, z: 9.8, r: 0.08 }, { x: 12.65, z: 9.55, r: 0.12 },
   ]
-  const stoneTones = ['#77766d', '#8a8375', '#6d716c', '#928a7a']
+  const stoneTones = ['#4f7048', '#64824f', '#456847', '#78935b']
 
   return (
     <group>
+      {/* Sloping turf shoulders cover the exposed vertical stone skirt and blend into the island lawn. */}
+      {banks.map((geometry, index) => (
+        <mesh key={`foundation-grass-bank-${index}`} geometry={geometry} raycast={noRaycast} receiveShadow renderOrder={1}>
+          <meshStandardMaterial map={grass} color="#e0efc5" roughness={0.99} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      {/* Hidden grass-textured backer skins seal tiny corner gaps in the sloping turf.
+          Their top edge stays below the timber floor, so they cannot cover the room. */}
+      {[
+        { position: [-12.735, -2.235, 0] as [number, number, number], size: [0.24, 4.40, 20.35] as [number, number, number] },
+        { position: [12.735, -2.235, 0] as [number, number, number], size: [0.24, 4.40, 20.35] as [number, number, number] },
+        { position: [0, -2.235, -9.685] as [number, number, number], size: [26.25, 4.40, 0.24] as [number, number, number] },
+        { position: [0, -2.235, 9.685] as [number, number, number], size: [26.25, 4.40, 0.24] as [number, number, number] },
+      ].map((panel, index) => (
+        <mesh key={`foundation-grass-seal-${index}`} position={panel.position} raycast={noRaycast} receiveShadow renderOrder={1}>
+          <boxGeometry args={panel.size} />
+          <meshStandardMaterial map={grass} color="#a9c78c" roughness={1} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
       {/* A deep limestone plinth sits flush with the island lawn, not on a floating platform. */}
-      <RoundedBox args={[25.65, 2.28, 19.55]} radius={0.52} smoothness={8} position={[0, -1.16, 0]} receiveShadow castShadow>
-        <meshStandardMaterial color="#a69d8f" roughness={0.96} metalness={0.02} />
+      <RoundedBox args={[25.95, 2.28, 19.85]} radius={0.52} smoothness={8} position={[0, -1.16, 0]} receiveShadow castShadow>
+        <meshStandardMaterial map={grass} color="#d8e9bc" roughness={0.99} metalness={0} />
       </RoundedBox>
-      <RoundedBox args={[26.05, 0.34, 19.95]} radius={0.48} smoothness={7} position={[0, -2.12, 0]} receiveShadow castShadow>
-        <meshStandardMaterial color="#81796d" roughness={0.98} />
+      <RoundedBox args={[26.35, 0.34, 20.25]} radius={0.48} smoothness={7} position={[0, -2.12, 0]} receiveShadow castShadow>
+        <meshStandardMaterial map={grass} color="#b9d59b" roughness={1} />
       </RoundedBox>
 
       {/* Irregular bedrock buttresses visibly lock the pavilion into the coastal headland. */}
@@ -230,11 +267,11 @@ function StudioFoundation() {
         <group key={`foundation-rock-${index}`} position={[stone.x, -1.95, stone.z]} rotation-y={stone.r}>
           <mesh position={[0, 0, 0]} scale={[1.32 + (index % 3) * 0.16, 2.1 + (index % 2) * 0.25, 1.08 + (index % 2) * 0.18]} castShadow receiveShadow>
             <dodecahedronGeometry args={[1, 1]} />
-            <meshStandardMaterial color={stoneTones[index % stoneTones.length]} roughness={0.98} flatShading />
+            <meshStandardMaterial map={grass} color="#9bb77b" roughness={1} flatShading />
           </mesh>
           <mesh position={[0.28, -1.75, 0.08]} scale={[1.02, 1.18, 0.88]} castShadow receiveShadow>
             <icosahedronGeometry args={[1, 1]} />
-            <meshStandardMaterial color={stoneTones[(index + 2) % stoneTones.length]} roughness={0.99} flatShading />
+            <meshStandardMaterial map={grass} color="#86a96d" roughness={1} flatShading />
           </mesh>
         </group>
       ))}
@@ -252,7 +289,7 @@ function OceanGlassWall({ length }: { length: number }) {
         <boxGeometry args={[length, 0.16, 0.22]} />
         <meshStandardMaterial color="#1d2428" roughness={0.35} metalness={0.75} />
       </mesh>
-      <mesh position={[0, ROOM.height / 2, 0]} raycast={noRaycast} renderOrder={2}>
+      <mesh position={[0, ROOM.height / 2, 0]} raycast={noRaycast} renderOrder={2} userData={{ mpdSolid: true }}>
         <planeGeometry args={[length, ROOM.height - 0.18]} />
         <meshPhysicalMaterial color="#ffffff" transparent opacity={0.015} roughness={0.01} metalness={0.02} transmission={0.98} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
@@ -275,7 +312,7 @@ function GlassWall({ length, position, rotationY }: { length: number; position: 
         <boxGeometry args={[length, 0.16, 0.3]} />
         <meshStandardMaterial color={BRONZE} roughness={0.5} metalness={0.4} />
       </mesh>
-      <mesh position={[0, GLASS_TOP / 2, 0]} raycast={noRaycast} renderOrder={2}>
+      <mesh position={[0, GLASS_TOP / 2, 0]} raycast={noRaycast} renderOrder={2} userData={{ mpdSolid: true }}>
         <planeGeometry args={[length, GLASS_TOP - 0.16]} />
         <meshPhysicalMaterial color="#d8ecf2" transparent opacity={0.045} roughness={0.02} metalness={0.1} reflectivity={0.6} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
@@ -285,6 +322,40 @@ function GlassWall({ length, position, rotationY }: { length: number; position: 
           <meshStandardMaterial color={BRONZE} roughness={0.4} metalness={0.6} />
         </mesh>
       ))}
+    </group>
+  )
+}
+
+
+function CurvedEntranceWings() {
+  // Permanently-open double slider: the two transparent leaves are parked outside
+  // the walking lane, like a resort pavilion with both automatic doors held open.
+  return (
+    <group position={[0, 0, ROOM.halfZ + 0.12]} userData={{ mpdNoCollision: true }}>
+      <mesh position={[0, 0.075, 0]} raycast={noRaycast}>
+        <boxGeometry args={[12.8, 0.14, 0.34]} />
+        <meshStandardMaterial color="#4a3525" roughness={0.48} metalness={0.42} />
+      </mesh>
+      {[-1, 1].map((side) => (
+        <group key={side} position={[side * 5.0, 0, 0]}>
+          <mesh position={[side * 0.55, GLASS_TOP / 2, -0.34]} raycast={noRaycast} renderOrder={2}>
+            <boxGeometry args={[1.45, GLASS_TOP - 0.18, 0.065]} />
+            <meshPhysicalMaterial color="#d9edf3" transparent opacity={0.065} roughness={0.025} metalness={0.08} transmission={0.9} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[side * 0.55, GLASS_TOP - 0.12, -0.34]} raycast={noRaycast}>
+            <boxGeometry args={[1.53, 0.11, 0.13]} />
+            <meshStandardMaterial color={BRONZE} roughness={0.35} metalness={0.7} />
+          </mesh>
+          <mesh position={[side * 0.55, 0.045, -0.34]} raycast={noRaycast}>
+            <boxGeometry args={[1.53, 0.07, 0.13]} />
+            <meshStandardMaterial color={BRONZE} roughness={0.4} metalness={0.65} />
+          </mesh>
+        </group>
+      ))}
+      <mesh position={[0, GLASS_TOP + 0.02, -0.32]} raycast={noRaycast}>
+        <boxGeometry args={[13.4, 0.2, 0.24]} />
+        <meshStandardMaterial color="#5a3a23" roughness={0.55} metalness={0.28} />
+      </mesh>
     </group>
   )
 }
@@ -370,19 +441,19 @@ export function Room({ onFloorClick, quality = 'high' }: { onFloorClick: (e: Thr
       <directionalLight position={[12, 25, 12]} intensity={2.0} color="#fff2df" castShadow={quality === 'high'} shadow-mapSize={[quality === 'high' ? 2048 : 512, quality === 'high' ? 2048 : 512]} />
       <directionalLight position={[-12, 18, -10]} intensity={1.0} color="#e5efff" />
 
-      <StudioFoundation />
-      <mesh rotation-x={-Math.PI / 2} receiveShadow onClick={onFloorClick} name="floor">
-        <planeGeometry args={[halfX * 2, halfZ * 2]} />
-        <meshStandardMaterial map={floorTex} bumpMap={floorTex} bumpScale={0.015} roughness={0.4} metalness={0.05} />
+      <StudioFoundation quality={quality} />
+      <mesh position={[0, 0.092, 0]} rotation-x={-Math.PI / 2} receiveShadow onClick={onFloorClick} name="floor" userData={{ mpdFloor: true }}>
+        <planeGeometry args={[25.95, 19.85]} />
+        <meshStandardMaterial map={floorTex} bumpMap={floorTex} bumpScale={0.018} roughness={0.42} metalness={0.025} side={THREE.DoubleSide} />
       </mesh>
 
       <VaultedCeiling quality={quality} />
       <OceanGlassWall length={halfX * 2} />
       <GlassWall length={halfZ * 2} position={[halfX, 0, 0]} rotationY={Math.PI / 2} />
       <GlassWall length={halfZ * 2} position={[-halfX, 0, 0]} rotationY={Math.PI / 2} />
-      {/* The procedural sky is mounted outside the texture Suspense boundary so it is always visible, even while the coast panorama loads. */}
-      <Sky distance={350000} sunPosition={[80, 42, -35]} turbidity={6.5} rayleigh={2.4} mieCoefficient={0.0045} mieDirectionalG={0.82} />
-      <Suspense fallback={null}><EnvironmentBackdrop quality={quality} /></Suspense>
+      <CurvedEntranceWings />
+      {/* Sky dome only. A single forward-facing coastal photograph is mounted by Outdoor; no ocean image is wrapped around the sides or rear. */}
+      <AtmosphereFallback />
       <BackTableWithProps onTurnTableClick={toggleLP} onBottleClick={playDrinkSound} />
       <Plant position={[-11.2, 0, 8.2]} />
     </group>

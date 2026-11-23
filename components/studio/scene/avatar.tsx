@@ -98,10 +98,19 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   useEffect(() => {
     if (!controls || !root.current) return
     const pos = root.current.position
-    controls.target.set(pos.x, pos.y + 2.35, pos.z)
-    camera.position.set(pos.x, pos.y + 3.15, pos.z - 8.5)
+    // Re-enter both realms from a stable over-the-shoulder view, never a top-down camera.
+    const targetHeight = underwaterMode ? 1.38 : 2.35
+    const cameraHeight = underwaterMode ? 2.62 : 3.15
+    const cameraBack = underwaterMode ? 8.0 : 8.5
+    const facing = root.current.rotation.y
+    controls.target.set(pos.x, pos.y + targetHeight, pos.z)
+    camera.position.set(
+      pos.x - Math.sin(facing) * cameraBack,
+      pos.y + cameraHeight,
+      pos.z - Math.cos(facing) * cameraBack,
+    )
     controls.update()
-  }, [resetKey, controls, camera])
+  }, [resetKey, controls, camera, underwaterMode])
 
   useEffect(() => {
     if (!target) return
@@ -470,8 +479,8 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
           // a full Y lock made the diver appear stationary against the background.
           const targetDelta = delta.clone()
           const cameraDelta = delta.clone()
-          targetDelta.y *= 0.68
-          cameraDelta.y *= 0.38
+          targetDelta.y *= 0.84
+          cameraDelta.y *= 0.84
           controls.target.add(targetDelta)
           camera.position.add(cameraDelta)
         } else {

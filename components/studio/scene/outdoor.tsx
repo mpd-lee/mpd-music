@@ -118,10 +118,9 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
 
   // The V14 plane remains at the same position and size. Only its left/right
   // borders are feathered so no hard vertical photo edge is visible against trees.
-  // Keep the image sharp at its joins: a narrow 4.2% feather hides only the
-  // last edge pixels instead of washing a broad strip of the photograph.
-  // The image pixels in the main view remain unchanged.
-  const fadeWidth = 0.042
+  // Keep the image sharp: a narrow 2.4% feather softens only the outermost
+  // edge pixels. The forest shell is extended behind this edge to prevent blue slits.
+  const fadeWidth = 0.024
   const alpha = context.createLinearGradient(0, 0, width, 0)
   alpha.addColorStop(0, 'rgba(0,0,0,0)')
   alpha.addColorStop(fadeWidth * 0.22, 'rgba(0,0,0,0.12)')
@@ -227,7 +226,7 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
   // Crop only the narrow damaged side pixels, then centre-crop vertically to
   // the exact 2:1 projection used by the front bay. This prevents the forest
   // panorama from being stretched wider than its source photograph.
-  const cropX = Math.round(sourceWidth * 0.055)
+  const cropX = Math.round(sourceWidth * 0.105)
   const sourceRectWidth = sourceWidth - cropX * 2
   const sourceRectHeight = Math.min(sourceHeight, sourceRectWidth / 2)
   const cropY = Math.max(0, (sourceHeight - sourceRectHeight) * 0.5)
@@ -381,6 +380,9 @@ function ForestPanorama({ quality }: { quality: GraphicsTier }) {
   const coastPath = quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp'
   const [source, coastSource] = useTexture([forestPath, coastPath])
   const texture = useMemo(() => createGreenForestTexture(source, coastSource, quality), [source, coastSource, quality])
+  // Extend the forest shell a few degrees behind the transparent coastal-photo
+  // edges. This closes the narrow blue-sky slits caused by the plane/cylinder seam.
+  const forestOverlap = 0.145
   const geometry = useMemo(() => new THREE.CylinderGeometry(
     BACKDROP_RADIUS,
     BACKDROP_RADIUS,
@@ -388,8 +390,8 @@ function ForestPanorama({ quality }: { quality: GraphicsTier }) {
     quality === 'mobile' ? 48 : 80,
     1,
     true,
-    Math.PI + FRONT_BAY_HALF_ANGLE,
-    Math.PI * 2 - FRONT_BAY_HALF_ANGLE * 2,
+    Math.PI + FRONT_BAY_HALF_ANGLE - forestOverlap,
+    Math.PI * 2 - FRONT_BAY_HALF_ANGLE * 2 + forestOverlap * 2,
   ), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()

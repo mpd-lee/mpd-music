@@ -296,7 +296,8 @@ function createCleanUnderwaterTexture(source: THREE.Texture, quality: GraphicsTi
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) return source
 
-  // Remove the smeared edge strips in the source photo, then make a proper 360 seam.
+  // Preserve the V20 framing: the user approved this underwater field of view.
+  // Only feather the 360 seam; the central blur is removed by omitting artificial light cones.
   const crop = Math.round(sourceWidth * 0.065)
   ctx.filter = quality === 'mobile' ? 'contrast(1.025) saturate(1.025)' : 'contrast(1.055) saturate(1.04)';
   ctx.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
@@ -359,8 +360,8 @@ function TropicalFish({ index, quality, school = 0, baseDepth = -1.15 }: FishPro
   const pectorals = useRef<THREE.Group>(null)
   const phase = index * 1.73 + school * 2.1
   const colors = ['#a99a70', '#66868c', '#a97860', '#789078', '#b2a16e', '#728596', '#928087', '#aaa595']
-  const color = colors[(index + school * 3) % colors.length]
-  const isClownfish = false
+  const isClownfish = index % 7 === 0
+  const color = isClownfish ? '#ed8738' : colors[(index + school * 3) % colors.length]
   const segments = quality === 'mobile' ? 18 : quality === 'balanced' ? 26 : 32
   const bodyGeometry = useMemo(() => {
     const profile = [
@@ -465,6 +466,118 @@ function TropicalFish({ index, quality, school = 0, baseDepth = -1.15 }: FishPro
           <meshStandardMaterial color={isClownfish ? '#b96634' : '#d1d9d6'} roughness={0.7} />
         </mesh>
       ))}
+    </group>
+  )
+}
+
+
+type InstancedFishSchoolProps = {
+  count: number
+  school?: number
+  baseDepth?: number
+  spreadX?: number
+  spreadZ?: number
+}
+
+/**
+ * Dense distant schools use two InstancedMeshes instead of dozens of individual
+ * React meshes. This provides a much richer reef without multiplying draw calls
+ * on phones and mid-range PCs.
+ */
+function InstancedFishSchool({ count, school = 0, baseDepth = -4, spreadX = 28, spreadZ = 24 }: InstancedFishSchoolProps) {
+  const bodies = useRef<THREE.InstancedMesh>(null)
+  const tails = useRef<THREE.InstancedMesh>(null)
+  const bodyDummy = useMemo(() => new THREE.Object3D(), [])
+  const tailDummy = useMemo(() => new THREE.Object3D(), [])
+  const segments = 16
+  const bodyMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.57, metalness: 0.025 }), [])
+  const tailMaterial = useMemo(() => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.62, side: THREE.DoubleSide }), [])
+  const bodyGeometry = useMemo(() => {
+    const profile = [
+      new THREE.Vector2(0, -0.52),
+      new THREE.Vector2(0.07, -0.43),
+      new THREE.Vector2(0.15, -0.22),
+      new THREE.Vector2(0.18, 0.02),
+      new THREE.Vector2(0.13, 0.27),
+      new THREE.Vector2(0.04, 0.46),
+      new THREE.Vector2(0, 0.52),
+    ]
+    const geometry = new THREE.LatheGeometry(profile, segments)
+    geometry.rotateX(Math.PI / 2)
+    return geometry
+  }, [])
+  const tailGeometry = useMemo(() => {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+      -0.19, -0.17, -0.43,
+       0.19, -0.17, -0.43,
+       0.00,  0.20, -0.43,
+    ], 3))
+    geometry.setIndex([0, 1, 2])
+    geometry.computeVertexNormals()
+    return geometry
+  }, [])
+
+  useEffect(() => {
+    const palette = ['#a7a18a', '#6d9295', '#8b9c87', '#b5a16e', '#788b9c', '#c18b66', '#ed8738']
+    const body = bodies.current
+    const tail = tails.current
+    if (!body || !tail) return
+    for (let i = 0; i < count; i += 1) {
+      const color = new THREE.Color(palette[(i * 3 + school * 2) % palette.length])
+      body.setColorAt(i, color)
+      tail.setColorAt(i, color.clone().multiplyScalar(0.82))
+    }
+    if (body.instanceColor) body.instanceColor.needsUpdate = true
+    if (tail.instanceColor) tail.instanceColor.needsUpdate = true
+  }, [count, school])
+
+  useEffect(() => () => {
+    bodyGeometry.dispose()
+    tailGeometry.dispose()
+    bodyMaterial.dispose()
+    tailMaterial.dispose()
+  }, [bodyGeometry, tailGeometry, bodyMaterial, tailMaterial])
+
+  useFrame((state) => {
+    const body = bodies.current
+    const tail = tails.current
+    if (!body || !tail) return
+    const time = state.clock.elapsedTime
+    for (let i = 0; i < count; i += 1) {
+      const phase = i * 2.399963 + school * 1.71
+      const speed = 0.105 + (i % 5) * 0.012
+      const angle = time * speed + phase
+      const radiusX = spreadX * (0.44 + (i % 6) * 0.105)
+      const radiusZ = spreadZ * (0.42 + (i % 5) * 0.12)
+      const x = Math.sin(angle) * radiusX + Math.sin(angle * 0.37 + phase) * 2.6
+      const z = Math.cos(angle * 0.78) * radiusZ + Math.cos(angle * 0.31 + phase) * 2.2
+      const y = baseDepth + Math.sin(angle * 1.45 + school) * (1.1 + (i % 4) * 0.22) - (i % 5) * 0.24
+      const dx = Math.cos(angle) * radiusX * speed
+      const dz = -Math.sin(angle * 0.78) * radiusZ * speed * 0.78
+      const heading = Math.atan2(dx, dz)
+      const scale = 0.46 + (i % 5) * 0.055
+
+      bodyDummy.position.set(x, y, z)
+      bodyDummy.rotation.set(0, heading, Math.sin(angle * 1.9) * 0.025)
+      bodyDummy.scale.set(scale, scale * 0.92, scale * 1.12)
+      bodyDummy.updateMatrix()
+      body.setMatrixAt(i, bodyDummy.matrix)
+
+      tailDummy.position.set(x, y, z)
+      tailDummy.rotation.set(0, heading + Math.sin(time * 4.3 + phase) * 0.34, 0)
+      tailDummy.scale.setScalar(scale)
+      tailDummy.updateMatrix()
+      tail.setMatrixAt(i, tailDummy.matrix)
+    }
+    body.instanceMatrix.needsUpdate = true
+    tail.instanceMatrix.needsUpdate = true
+  })
+
+  return (
+    <group raycast={noRaycast} userData={{ mpdNoCollision: true }}>
+      <instancedMesh ref={bodies} args={[bodyGeometry, bodyMaterial, count]} frustumCulled={false} raycast={noRaycast} />
+      <instancedMesh ref={tails} args={[tailGeometry, tailMaterial, count]} frustumCulled={false} raycast={noRaycast} />
     </group>
   )
 }
@@ -798,16 +911,16 @@ function DiverMarineEscort({ playerPositionRef, quality }: {
     const dz = target.z - node.position.z
     if (Math.hypot(dx, dz) > 0.015) node.rotation.y = Math.atan2(dx, dz)
   })
-  const smallFish = quality === 'mobile' ? 0 : quality === 'balanced' ? 0 : 0
+  const smallFish = quality === 'mobile' ? 5 : quality === 'balanced' ? 9 : 15
   return (
     <group ref={group} raycast={noRaycast} userData={{ mpdNoCollision: true }}>
-      {Array.from({ length: smallFish }, (_, i) => (
-        <TropicalFish key={`escort-fish-${i}`} index={i + 201} quality={quality} school={41 + (i % 3)} baseDepth={-1.0 - (i % 3) * 0.65} />
-      ))}
-      <SeaTurtle position={[-3.6, -2.2, 3.8]} scale={quality === 'mobile' ? 0.72 : 0.92} depthY={-2.2} />
+      <InstancedFishSchool count={smallFish} school={41} baseDepth={-2.4} spreadX={7.5} spreadZ={6.5} />
+      <SeaTurtle position={[-3.6, -2.2, 3.8]} scale={quality === 'mobile' ? 0.68 : 0.92} depthY={-2.2} />
       {quality !== 'mobile' && <MantaRay position={[4.4, -1.2, 2.6]} depthY={-1.2} />}
-      {quality === 'high' && <LargeMarineAnimal kind="reef-shark" position={[8.5, -4.2, -5.5]} scale={0.82} phase={2.8} />}
-      {quality === 'high' && <LargeMarineAnimal kind="whale" position={[-10, -8.5, -12]} scale={0.78} phase={5.1} />}
+      {quality !== 'mobile' && <LargeMarineAnimal kind="whale" position={[-8.5, -5.8, -10]} scale={0.48} phase={1.6} />}
+      {quality === 'high' && <LargeMarineAnimal kind="reef-shark" position={[8.5, -4.2, -5.5]} scale={0.9} phase={2.8} />}
+      {quality === 'high' && <LargeMarineAnimal kind="whale-shark" position={[-12, -10.5, -18]} scale={0.88} phase={3.6} />}
+      {quality === 'high' && <LargeMarineAnimal kind="whale" position={[-3.5, -8.5, -23]} scale={1.18} phase={5.1} />}
     </group>
   )
 }
@@ -831,24 +944,6 @@ function BubbleColumn({ index, baseY = -4.5 }: { index: number; baseY?: number }
         <sphereGeometry args={[1, 10, 8]} />
         <meshPhysicalMaterial color="#c9fbff" transparent opacity={0.3} roughness={0.08} metalness={0.02} clearcoat={1} />
       </mesh>)}
-    </group>
-  )
-}
-
-function LightShafts({ quality }: { quality: GraphicsTier }) {
-  const count = quality === 'mobile' ? 1 : quality === 'balanced' ? 2 : 3
-  return (
-    <group raycast={noRaycast}>
-      {Array.from({ length: count }, (_, i) => {
-        const x = (i - (count - 1) / 2) * 4.4
-        const depth = -12 + (i % 3) * 8
-        return (
-          <mesh key={i} position={[x, -18.5, depth]} rotation-z={Math.sin(i * 2.1) * 0.14}>
-            <coneGeometry args={[1.7 + (i % 3) * 0.42, 52, 12, 1, true]} />
-            <meshBasicMaterial color={i % 2 ? '#70e4ee' : '#b0f7ef'} transparent opacity={0.045} depthWrite={false} side={THREE.DoubleSide} />
-          </mesh>
-        )
-      })}
     </group>
   )
 }
@@ -887,7 +982,7 @@ function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: 
   )
 }
 
-export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
+export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionRef }: {
   onPathClick: (event: ThreeEvent<MouseEvent>) => void
   quality?: GraphicsTier
   playerPositionRef?: MutableRefObject<THREE.Vector3>
@@ -895,9 +990,10 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
   // The 2:1 photographic panorama already contains one continuous 360-degree
   // reef, natural rock arch and real-looking seabed. Do not cover it with a
   // synthetic floor slab or duplicate procedural cave/rock walls.
-  const fishCount = quality === 'mobile' ? 4 : quality === 'balanced' ? 7 : 10
-  const kelpCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 6
-  const coralCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 6
+  const heroFishCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 3 : 4
+  const schoolCounts = quality === 'mobile' ? [16, 8, 4] : quality === 'balanced' ? [28, 16, 8] : [44, 26, 14]
+  const kelpCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 3 : 4
+  const coralCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 3 : 4
   const coralPositions = useMemo(() => Array.from({ length: coralCount }, (_, i) => {
     const angle = i * 2.399963 + 0.25
     const radius = 11 + (i % 3) * 4.2
@@ -918,7 +1014,7 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
       <ambientLight color="#83c7d4" intensity={quality === 'mobile' ? 0.72 : 0.82} />
       <hemisphereLight args={['#c1edf3', '#27464b', 0.72]} />
       <directionalLight position={[-10, 18, 8]} color="#b7e8ed" intensity={1.0} />
-      <LightShafts quality={quality} />
+      {/* Natural sunlight is already baked into the 360° photo. Avoid synthetic cones that read as blurry vertical bands. */}
 
       {/* Wide transparent click volume: movement remains free in all 360 degrees. */}
       <mesh onClick={onPathClick} renderOrder={-5}>
@@ -927,19 +1023,17 @@ export function UnderwaterWorld({ onPathClick, quality = 'high' }: {
       </mesh>
       <UnderwaterDome quality={quality} />
 
-      {/* A small near-field school supplies motion; the panorama supplies the reef. */}
-      {Array.from({ length: fishCount }, (_, i) => (
-        <TropicalFish key={`near-school-${i}`} index={i + 17} quality={quality} school={i % 3} baseDepth={-3.0 - (i % 3) * 0.75} />
+      {/* Three broad schools create roughly five times the visible marine life.
+          Instancing keeps the additional fish inexpensive on mobile and desktop. */}
+      <InstancedFishSchool count={schoolCounts[0]} school={3} baseDepth={-3.5} spreadX={32} spreadZ={28} />
+      <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-16.5} spreadX={48} spreadZ={42} />
+      <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-36.0} spreadX={58} spreadZ={54} />
+      {Array.from({ length: heroFishCount }, (_, i) => (
+        <TropicalFish key={`hero-fish-${i}`} index={i % 2 === 0 ? i * 7 + 21 : i * 7 + 20} quality={quality} school={i % 3 + 1} baseDepth={-2.8 - (i % 3) * 1.0} />
       ))}
-      {Array.from({ length: Math.max(2, Math.floor(fishCount * 0.45)) }, (_, i) => (
-        <TropicalFish key={`mid-school-${i}`} index={i + 51} quality={quality} school={i % 3 + 4} baseDepth={-12.5 - (i % 3) * 1.1} />
-      ))}
-      {quality !== 'mobile' && Array.from({ length: quality === 'balanced' ? 2 : 3 }, (_, i) => (
-        <TropicalFish key={`deep-school-${i}`} index={i + 83} quality={quality} school={i % 3 + 8} baseDepth={-35.5 - (i % 3) * 1.8} />
-      ))}
+      {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} quality={quality} />}
 
-      {/* Sparse, desaturated foreground plants and corals. Most detail remains
-          baked into the continuous photographic reef to avoid toy-like clutter. */}
+      {/* Keep only a few restrained foreground plants; the 360° photograph carries the distant reef. */}
       {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
       {kelpPositions.map((position, i) => <Kelp key={`near-kelp-${i}`} position={position} seed={i * 7.7 + 91} />)}
     </group>

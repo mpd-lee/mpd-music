@@ -53,7 +53,7 @@ function buildIslandSurface(quality: GraphicsTier) {
   const insideStudioFloor = (index: number) => {
     const x = positions[index * 3]
     const z = positions[index * 3 + 2]
-    return Math.abs(x) <= 12.72 && Math.abs(z) <= 9.68
+    return Math.abs(x) <= 13.08 && Math.abs(z) <= 10.00
   }
   const addTriangleOutsideFloor = (a: number, b: number, c: number) => {
     if (!(insideStudioFloor(a) && insideStudioFloor(b) && insideStudioFloor(c))) {
