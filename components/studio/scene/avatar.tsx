@@ -14,9 +14,9 @@ type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
 export const AVATAR_START = new THREE.Vector3(0, 0, 4.2)
 const SPEED = 4.25
-const UNDERWATER_INPUT_SPEED = 9.6
-const UNDERWATER_CLICK_SPEED = 7.2
-const UNDERWATER_VERTICAL_SPEED = 8.4
+const UNDERWATER_INPUT_SPEED = 28.8
+const UNDERWATER_CLICK_SPEED = 21.6
+const UNDERWATER_VERTICAL_SPEED = 25.2
 type MoveVector = { x: number; z: number; y?: number }
 const SKIN = '#f3cba5'
 const HOODIE = '#2f4a5a'
@@ -48,19 +48,19 @@ function ScubaBubbleTrail() {
     bubbles.current.forEach((mesh, index) => {
       const material = materials.current[index]
       if (!mesh || !material) return
-      const cycle = (time * 0.42 + index * 0.31) % 1
-      const visible = cycle < 0.46
+      const cycle = (time * 0.32 + index * 0.19) % 1
+      const visible = cycle < 0.34
       mesh.visible = visible
       if (!visible) return
-      const rise = cycle / 0.46
-      mesh.position.set(Math.sin(time * 1.9 + index * 1.6) * 0.018, 0.01 + rise * 0.26, 0.015)
-      mesh.scale.setScalar(0.006 + rise * 0.009)
-      material.opacity = 0.22 + (1 - rise) * 0.22
+      const rise = cycle / 0.34
+      mesh.position.set(Math.sin(time * 1.7 + index * 1.3) * 0.022, 0.01 + rise * 0.22, 0.015)
+      mesh.scale.setScalar(0.0045 + rise * 0.007)
+      material.opacity = 0.16 + (1 - rise) * 0.20
     })
   })
   return (
     <group position={[0, 1.035, 0.325]}>
-      {Array.from({ length: 3 }, (_, index) => (
+      {Array.from({ length: 5 }, (_, index) => (
         <mesh key={index} ref={(mesh) => { bubbles.current[index] = mesh }}>
           <sphereGeometry args={[1, 8, 6]} />
           <meshPhysicalMaterial ref={(material) => { materials.current[index] = material }} color="#d8fbff" transparent opacity={0.38} roughness={0.06} metalness={0} clearcoat={1} depthWrite={false} />
@@ -101,10 +101,21 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   useEffect(() => {
     if (!controls || !root.current) return
     const pos = root.current.position
-    controls.target.set(pos.x, pos.y + 2.35, pos.z)
-    camera.position.set(pos.x, pos.y + 3.15, pos.z - 8.5)
+    const facing = root.current.rotation.y
+    const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
+    // Keep the avatar in a natural over-the-shoulder third-person frame.
+    // The camera starts behind the avatar, not above its head, on land and underwater.
+    const distance = underwaterMode ? (coarse ? 10.2 : 8.9) : (coarse ? 9.8 : 8.4)
+    const targetHeight = underwaterMode ? 1.12 : 1.18
+    const cameraHeight = underwaterMode ? 2.72 : 2.82
+    controls.target.set(pos.x, pos.y + targetHeight, pos.z)
+    camera.position.set(
+      pos.x - Math.sin(facing) * distance,
+      pos.y + cameraHeight,
+      pos.z - Math.cos(facing) * distance,
+    )
     controls.update()
-  }, [resetKey, controls, camera])
+  }, [resetKey, controls, camera, underwaterMode])
 
   useEffect(() => {
     if (!target) return
@@ -468,19 +479,10 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     if (controls) {
       const delta = g.position.clone().sub(prev.current)
       if (delta.lengthSq() > 0) {
-        if (underwaterMode) {
-          // Partial vertical camera follow makes ascent/descent visible in-frame;
-          // a full Y lock made the diver appear stationary against the background.
-          const targetDelta = delta.clone()
-          const cameraDelta = delta.clone()
-          targetDelta.y *= 0.68
-          cameraDelta.y *= 0.38
-          controls.target.add(targetDelta)
-          camera.position.add(cameraDelta)
-        } else {
-          controls.target.add(delta)
-          camera.position.add(delta)
-        }
+        // Translate the camera and its orbit target together with the avatar.
+        // This preserves the third-person framing during horizontal swimming and ascent/descent.
+        controls.target.add(delta)
+        camera.position.add(delta)
         controls.update()
       }
     }

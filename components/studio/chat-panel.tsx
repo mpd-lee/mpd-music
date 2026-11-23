@@ -647,7 +647,7 @@ export function ChatPanel({
       {!minimized && (
         <section
           ref={panelRef}
-          className="fixed left-3 top-[132px] z-30 flex h-[min(62dvh,580px)] max-[820px]:h-[min(44dvh,360px)] w-[min(390px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-neutral-950/95 text-white shadow-2xl backdrop-blur-xl sm:w-[390px]"
+          className="mpd-chat-panel fixed left-3 top-[132px] z-30 flex h-[min(62dvh,580px)] max-[820px]:h-[min(44dvh,360px)] w-[min(390px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-white/15 bg-neutral-950/95 text-white shadow-2xl backdrop-blur-xl sm:w-[390px]"
           style={panelPosition ? { left: panelPosition.x, top: panelPosition.y, right: 'auto' } : undefined}
         >
           <header className="flex items-center justify-between border-b border-white/10 px-3 py-2.5">
@@ -726,7 +726,7 @@ export function ChatPanel({
           </form>
         </section>
       )}
-      {minimized && <button type="button" onClick={() => setMinimized(false)} className="fixed left-4 top-[68px] z-30 flex items-center gap-1 rounded-full border border-amber-200/25 bg-neutral-950/90 px-2 py-1 text-white shadow-xl backdrop-blur-xl transition hover:scale-[1.02] hover:border-amber-200/50 max-sm:left-2 max-sm:top-[66px] max-sm:px-2 max-sm:py-1" aria-label="채팅방 열기" title="Global Chat 열기">
+      {minimized && <button type="button" onClick={() => setMinimized(false)} className="mpd-global-chat-chip fixed left-4 top-[64px] z-30 flex items-center gap-1 rounded-full border border-amber-200/25 bg-neutral-950/90 px-2 py-1 text-white shadow-xl backdrop-blur-xl transition hover:scale-[1.02] hover:border-amber-200/50 max-sm:left-2 max-sm:top-[44px] max-sm:px-1.5 max-sm:py-0.5" aria-label="채팅방 열기" title="Global Chat 열기">
         <span className="relative flex size-5 items-center justify-center rounded-full bg-amber-300 text-neutral-950 max-sm:size-[18px]">{isDirect ? <MessageCircle className="size-3 max-sm:size-2.5" /> : <Users className="size-3 max-sm:size-2.5" />}<span className="absolute -right-1 -top-1 size-2 rounded-full border border-neutral-950 bg-emerald-400" /></span>
         <span className="text-left"><span className="block text-[9px] font-semibold leading-tight">{isDirect ? `${target?.name ?? '사용자'} · 1:1` : 'Global Chat'}</span><span className="block text-[8px] leading-tight text-neutral-400">채팅 열기</span></span>
       </button>}

@@ -504,12 +504,12 @@ export function StudioScene({
           rotateSpeed={graphicsTier === 'mobile' ? 0.64 : 0.74}
           enableZoom
           zoomSpeed={1.12}
-          minDistance={underwater ? (graphicsTier === 'mobile' ? 5.1 : 4.8) : graphicsTier === 'mobile' ? 4.0 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 34 : graphicsTier === 'balanced' ? 30 : 28) : graphicsTier === 'mobile' ? 52 : 56}
+          minDistance={underwater ? (graphicsTier === 'mobile' ? 4.4 : 4.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 44 : graphicsTier === 'balanced' ? 42 : 46) : graphicsTier === 'mobile' ? 52 : 56}
           // Outdoors: keep the camera close to the horizon so looking upward
           // cannot pass through the ground. Underwater remains a free 3D orbit.
-          minPolarAngle={underwater ? 0.70 : 1.34}
-          maxPolarAngle={underwater ? 2.45 : 1.60}
+          minPolarAngle={underwater ? 0.16 : 1.28}
+          maxPolarAngle={underwater ? Math.PI - 0.16 : Math.PI / 2}
           target={DEFAULT_ORBIT_TARGET}
         />
       </Canvas>

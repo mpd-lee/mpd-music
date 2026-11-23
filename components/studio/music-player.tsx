@@ -393,7 +393,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
         aria-label="배경 음악 플레이어"
         aria-hidden={minimized}
         className={cn(
-          'fixed bottom-4 right-4 z-30 w-[min(300px,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-neutral-950/75 p-3 text-white shadow-2xl backdrop-blur-md transition-all duration-300',
+          'mpd-music-player fixed bottom-4 right-4 z-30 w-[min(300px,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-neutral-950/75 p-3 text-white shadow-2xl backdrop-blur-md transition-all duration-300',
           minimized && 'pointer-events-none translate-y-6 opacity-0',
           suspended && 'opacity-55',
           !visible && 'pointer-events-none opacity-0',
@@ -455,7 +455,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
         aria-label="Spotify 기타 연주곡 플레이어"
         aria-hidden={!spotifySelection}
         className={cn(
-          'fixed bottom-4 right-4 z-50 w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-emerald-200/20 bg-neutral-950/95 p-2.5 text-white shadow-2xl backdrop-blur-xl transition-all duration-200',
+          'mpd-spotify-player fixed bottom-4 right-4 z-50 w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-emerald-200/20 bg-neutral-950/95 p-2.5 text-white shadow-2xl backdrop-blur-xl transition-all duration-200',
           !spotifySelection && 'pointer-events-none translate-y-3 opacity-0',
           spotifySelection && 'opacity-100',
         )}

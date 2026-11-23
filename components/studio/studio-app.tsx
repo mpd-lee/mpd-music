@@ -72,13 +72,13 @@ export default function StudioApp() {
       )}
       {entered && <Loader containerStyles={{ background: '#0c0a09' }} barStyles={{ background: '#e8b26a' }} dataInterpolation={(p) => `스튜디오 불러오는 중 ${p.toFixed(0)}%`} />}
 
-      <header className="pointer-events-none fixed inset-x-4 top-4 z-20 flex items-start justify-between gap-3">
+      <header className="mpd-topbar pointer-events-none fixed inset-x-4 top-4 z-20 flex items-start justify-between gap-3">
         <a
           href="https://mpd-music.carrd.co"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="[MPD] MPD Music Studio 사운드 프로덕션 & 뮤직 커뮤니티 공식 페이지 열기"
-          className="pointer-events-auto flex items-center gap-3 rounded-full border border-white/10 bg-neutral-950/65 py-1.5 pl-1.5 pr-4 backdrop-blur-md transition hover:border-amber-200/50 hover:bg-neutral-900/80"
+          className="mpd-brand pointer-events-auto flex items-center gap-3 rounded-full border border-white/10 bg-neutral-950/65 py-1.5 pl-1.5 pr-4 backdrop-blur-md transition hover:border-amber-200/50 hover:bg-neutral-900/80"
         >
           <span className="flex h-9 items-center rounded-full border border-amber-200/35 bg-gradient-to-br from-amber-200 to-amber-400 px-2.5 text-[11px] font-black tracking-wide text-neutral-950">[MPD]</span>
           <div className="min-w-0 leading-tight">
@@ -112,7 +112,7 @@ export default function StudioApp() {
 
       <nav
         aria-label="스튜디오 메뉴"
-        className="fixed right-4 top-[4.35rem] z-20 flex items-center gap-1 rounded-2xl border border-white/10 bg-neutral-950/75 p-1.5 shadow-xl backdrop-blur-md max-sm:right-2 max-sm:top-[4.1rem]"
+        className="mpd-top-nav fixed right-4 top-[4.35rem] z-20 flex items-center gap-1 rounded-2xl border border-white/10 bg-neutral-950/75 p-1.5 shadow-xl backdrop-blur-md max-sm:right-2 max-sm:top-[4.1rem]"
       >
         {[
           { label: '방명록', icon: BookOpen, onClick: () => setGuestbookOpen((v) => !v), active: guestbookOpen },
