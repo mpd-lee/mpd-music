@@ -43,12 +43,27 @@ function buildIslandSurface(quality: GraphicsTier) {
     }
   }
 
-  // Fan from the center to the first ring, then stitch every subsequent ring.
+  // Keep a continuous grass skin up to the timber foundation edge. Only triangles
+  // whose three corners are completely beneath the floor are omitted. The former
+  // bounding-box test removed whole long radial triangles merely because they
+  // touched the floor rectangle, leaving visible grey wedges around the pavilion.
+  // Crossing triangles are intentionally retained: terrain height is below the
+  // timber floor, so the floor naturally occludes the small overlap without z-fighting.
   const firstStart = indices.length
+  const insideStudioFloor = (index: number) => {
+    const x = positions[index * 3]
+    const z = positions[index * 3 + 2]
+    return Math.abs(x) <= 12.72 && Math.abs(z) <= 9.68
+  }
+  const addTriangleOutsideFloor = (a: number, b: number, c: number) => {
+    if (!(insideStudioFloor(a) && insideStudioFloor(b) && insideStudioFloor(c))) {
+      indices.push(a, b, c)
+    }
+  }
   for (let s = 0; s < segments; s += 1) {
     const a = 1 + s
     const b = 1 + ((s + 1) % segments)
-    indices.push(0, b, a)
+    addTriangleOutsideFloor(0, b, a)
   }
   ringRanges.push({ start: firstStart, count: indices.length - firstStart, material: 0 })
 
@@ -62,9 +77,9 @@ function buildIslandSurface(quality: GraphicsTier) {
       const b = inner + next
       const c = outer + s
       const d = outer + next
-      indices.push(a, b, c, b, d, c)
+      addTriangleOutsideFloor(a, b, c)
+      addTriangleOutsideFloor(b, d, c)
     }
-    // Every upper ring uses the same grass material, so no white/sand strip forms at the edge.
     ringRanges.push({ start, count: indices.length - start, material: 0 })
   }
 
@@ -77,6 +92,76 @@ function buildIslandSurface(quality: GraphicsTier) {
   geometry.computeVertexNormals()
   geometry.computeBoundingSphere()
   return geometry
+}
+
+function buildFrontBeach(quality: GraphicsTier) {
+  const angularSegments = quality === 'mobile' ? 24 : quality === 'balanced' ? 40 : 56
+  const radialSegments = quality === 'mobile' ? 5 : 8
+  const centerAngle = -Math.PI / 2
+  const halfAngle = 0.78
+  const positions: number[] = []
+  const uvs: number[] = []
+  const indices: number[] = []
+  for (let r = 0; r <= radialSegments; r += 1) {
+    const t = r / radialSegments
+    for (let a = 0; a <= angularSegments; a += 1) {
+      const offset = (a / angularSegments) * halfAngle * 2 - halfAngle
+      const angle = centerAngle + offset
+      const edge = getIslandEdgeRadius(angle) + 0.12
+      const start = 16 - Math.exp(-Math.pow(offset / 0.72, 4)) * 2.5
+      const radius = THREE.MathUtils.lerp(start, edge, t)
+      const x = Math.cos(angle) * radius
+      const z = Math.sin(angle) * radius
+      positions.push(x, getIslandGroundHeight(x, z) + 0.045, z)
+      uvs.push((a / angularSegments) * 4, t * 5)
+    }
+  }
+  for (let r = 0; r < radialSegments; r += 1) {
+    for (let a = 0; a < angularSegments; a += 1) {
+      const i = r * (angularSegments + 1) + a
+      const n = i + angularSegments + 1
+      indices.push(i, i + 1, n, i + 1, n + 1, n)
+    }
+  }
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+  geometry.setIndex(indices)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function createBeachTexture() {
+  if (typeof document === 'undefined') return null
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const g = ctx.createLinearGradient(0, 0, 512, 512)
+  g.addColorStop(0, '#e8d7b0')
+  g.addColorStop(0.55, '#d7c293')
+  g.addColorStop(1, '#c8ae7f')
+  ctx.fillStyle = g
+  ctx.fillRect(0, 0, 512, 512)
+  let seed = 29741
+  const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
+  for (let i = 0; i < 16000; i += 1) {
+    const alpha = 0.025 + rand() * 0.11
+    const shade = rand() > 0.52 ? `rgba(255,248,226,${alpha})` : `rgba(105,83,49,${alpha})`
+    ctx.fillStyle = shade
+    const r = 0.5 + rand() * 2.1
+    ctx.beginPath()
+    ctx.ellipse(rand() * 512, rand() * 512, r * 1.8, r, rand() * 3.14, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.RepeatWrapping
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.repeat.set(2.5, 3.2)
+  texture.anisotropy = 6
+  return texture
 }
 
 function buildIslandCliff(quality: GraphicsTier) {
@@ -187,6 +272,9 @@ export function IslandTerrain({ quality, onPathClick }: { quality: GraphicsTier;
   const topGeometry = useMemo(() => buildIslandSurface(quality), [quality])
   const cliffGeometry = useMemo(() => buildIslandCliff(quality), [quality])
   const cliffTexture = useMemo(() => buildCliffTexture(), [])
+  const beachGeometry = useMemo(() => buildFrontBeach(quality), [quality])
+  const beachTexture = useMemo(() => createBeachTexture(), [])
+
 
   grass.colorSpace = THREE.SRGBColorSpace
   grass.wrapS = THREE.RepeatWrapping
@@ -207,16 +295,17 @@ export function IslandTerrain({ quality, onPathClick }: { quality: GraphicsTier;
     side: THREE.DoubleSide,
   }), [cliffTexture])
 
+
   return (
     <group>
       {/* The island is one continuous radial landform, not a rectangular grass plane. */}
       <mesh geometry={topGeometry} material={materials} receiveShadow onClick={onPathClick} />
-      <mesh geometry={cliffGeometry} material={cliffMaterial} raycast={noRaycast} receiveShadow />
-      {/* Ocean occupies only the forward 180-degree coast. The rear hemisphere remains land/forest. */}
-      <mesh position={[0, -25.2, 0]} rotation-x={-Math.PI / 2} raycast={noRaycast}>
-        <circleGeometry args={[1600, quality === 'mobile' ? 48 : 96, Math.PI, Math.PI]} />
-        <meshBasicMaterial color="#286f8a" toneMapped={false} side={THREE.DoubleSide} />
+      <mesh geometry={beachGeometry} receiveShadow raycast={noRaycast} renderOrder={1}>
+        <meshStandardMaterial map={beachTexture ?? undefined} color={beachTexture ? '#ffffff' : '#dfc99f'} roughness={0.98} metalness={0} side={THREE.DoubleSide} />
       </mesh>
+      <mesh geometry={cliffGeometry} material={cliffMaterial} raycast={noRaycast} receiveShadow />
+      {/* The sea is rendered as a single forward-facing bay by Outdoor.CoastalSea.
+          No second half-ocean plane is used here; side and rear terrain remain forested land. */}
     </group>
   )
 }

@@ -118,17 +118,18 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
 
   // The V14 plane remains at the same position and size. Only its left/right
   // borders are feathered so no hard vertical photo edge is visible against trees.
-  // A longer eased feather hides the straight cut where the coastal photo meets
-  // the forest belt. Keep the photograph's centre fully opaque and untouched.
-  const fadeWidth = 0.155
+  // Keep the image sharp at its joins: a narrow 4.2% feather hides only the
+  // last edge pixels instead of washing a broad strip of the photograph.
+  // The image pixels in the main view remain unchanged.
+  const fadeWidth = 0.042
   const alpha = context.createLinearGradient(0, 0, width, 0)
   alpha.addColorStop(0, 'rgba(0,0,0,0)')
-  alpha.addColorStop(fadeWidth * 0.28, 'rgba(0,0,0,0.10)')
-  alpha.addColorStop(fadeWidth * 0.68, 'rgba(0,0,0,0.72)')
+  alpha.addColorStop(fadeWidth * 0.22, 'rgba(0,0,0,0.12)')
+  alpha.addColorStop(fadeWidth * 0.62, 'rgba(0,0,0,0.76)')
   alpha.addColorStop(fadeWidth, 'rgba(0,0,0,1)')
   alpha.addColorStop(1 - fadeWidth, 'rgba(0,0,0,1)')
-  alpha.addColorStop(1 - fadeWidth * 0.68, 'rgba(0,0,0,0.72)')
-  alpha.addColorStop(1 - fadeWidth * 0.28, 'rgba(0,0,0,0.10)')
+  alpha.addColorStop(1 - fadeWidth * 0.62, 'rgba(0,0,0,0.76)')
+  alpha.addColorStop(1 - fadeWidth * 0.22, 'rgba(0,0,0,0.12)')
   alpha.addColorStop(1, 'rgba(0,0,0,0)')
   context.globalCompositeOperation = 'destination-in'
   context.fillStyle = alpha
@@ -146,15 +147,59 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   return blended
 }
 
+function PhotoSeaRipple() {
+  // A separate transparent shader adds tiny moving specular lines only over
+  // the water pixels. The underlying coastal photograph is never displaced,
+  // recoloured, repainted or replaced.
+  const uniforms = useMemo(() => ({ uTime: { value: 0 } }), [])
+  useFrame((state) => { uniforms.uTime.value = state.clock.elapsedTime })
+  return (
+    <mesh position={[0, BACKDROP_CENTER_Y, -BACKDROP_RADIUS - 4.92]} raycast={noRaycast} renderOrder={-89} frustumCulled={false}>
+      <planeGeometry args={[BACKDROP_WIDTH, BACKDROP_HEIGHT]} />
+      <shaderMaterial
+        transparent
+        depthWrite={false}
+        toneMapped={false}
+        uniforms={uniforms}
+        vertexShader={`
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `}
+        fragmentShader={`
+          uniform float uTime;
+          varying vec2 vUv;
+          void main() {
+            float imageY = 1.0 - vUv.y;
+            float waterBand = smoothstep(0.485, 0.515, imageY) * (1.0 - smoothstep(0.695, 0.755, imageY));
+            float openWater = smoothstep(0.16, 0.25, vUv.x) * (1.0 - smoothstep(0.76, 0.86, vUv.x));
+            float waveA = sin(vUv.y * 510.0 + sin(vUv.x * 34.0 + uTime * 0.18) * 1.7 + uTime * 0.62);
+            float waveB = sin(vUv.y * 285.0 - vUv.x * 17.0 - uTime * 0.27);
+            float crest = pow(max(0.0, waveA), 17.0) * 0.052 + pow(max(0.0, waveB), 23.0) * 0.022;
+            float shimmer = 0.006 + 0.004 * (0.5 + 0.5 * sin(uTime * 0.22 + vUv.x * 8.0 + vUv.y * 24.0));
+            float alpha = (crest + shimmer) * waterBand * openWater;
+            gl_FragColor = vec4(vec3(0.76, 0.93, 0.98), alpha);
+          }
+        `}
+      />
+    </mesh>
+  )
+}
+
 function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   const source = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const image = useMemo(() => createCoastEdgeBlend(source, quality), [source, quality])
   useEffect(() => () => { if (image !== source) image.dispose() }, [image, source])
   return (
-    <mesh position={[0, BACKDROP_CENTER_Y, -BACKDROP_RADIUS - 5]} raycast={noRaycast} rotation-y={0} renderOrder={-90} frustumCulled={false}>
-      <planeGeometry args={[BACKDROP_WIDTH, BACKDROP_HEIGHT]} />
-      <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.DoubleSide} depthWrite={false} />
-    </mesh>
+    <>
+      <mesh position={[0, BACKDROP_CENTER_Y, -BACKDROP_RADIUS - 5]} raycast={noRaycast} rotation-y={0} renderOrder={-90} frustumCulled={false}>
+        <planeGeometry args={[BACKDROP_WIDTH, BACKDROP_HEIGHT]} />
+        <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <PhotoSeaRipple />
+    </>
   )
 }
 
@@ -170,19 +215,26 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
 
   const maxWidth = quality === 'mobile' ? 1024 : 2048
   const width = Math.min(sourceWidth, maxWidth)
-  const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth))
+  // Both backdrops use a 2:1 frame. Match that frame exactly instead of
+  // stretching the 1.79:1 forest original vertically to fit the cylinder.
+  const height = Math.max(1, Math.round(width / 2))
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d', { willReadFrequently: true })
   if (!context) return source
 
-  // Crop the forest photograph's soft, smeared outer strips before projection.
-  const crop = Math.round(sourceWidth * 0.055)
+  // Crop only the narrow damaged side pixels, then centre-crop vertically to
+  // the exact 2:1 projection used by the front bay. This prevents the forest
+  // panorama from being stretched wider than its source photograph.
+  const cropX = Math.round(sourceWidth * 0.055)
+  const sourceRectWidth = sourceWidth - cropX * 2
+  const sourceRectHeight = Math.min(sourceHeight, sourceRectWidth / 2)
+  const cropY = Math.max(0, (sourceHeight - sourceRectHeight) * 0.5)
   context.imageSmoothingEnabled = true
   context.imageSmoothingQuality = 'high'
-  context.filter = 'saturate(0.92) contrast(1.035) brightness(1.015)'
-  context.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
+  context.filter = 'saturate(0.94) contrast(1.025) brightness(1.01)'
+  context.drawImage(image, cropX, cropY, sourceRectWidth, sourceRectHeight, 0, 0, width, height)
   context.filter = 'none'
 
   const frame = context.getImageData(0, 0, width, height)
@@ -207,9 +259,9 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
     const saturation = max <= 0 ? 0 : delta / max
     if (hue < 28 || hue > 96 || saturation < 0.22 || max < 0.30 || g < b * 1.06) continue
 
-    const targetHue = 91 + Math.min(13, (hue - 28) * 0.16)
-    const targetSaturation = Math.min(0.70, saturation * 0.78 + 0.075)
-    const value = Math.min(1, max * 1.045)
+    const targetHue = 86 + Math.min(9, (hue - 28) * 0.13)
+    const targetSaturation = Math.min(0.66, saturation * 0.75 + 0.055)
+    const value = Math.min(1, max * 1.025)
     const chroma = value * targetSaturation
     const h = targetHue / 60
     const x = chroma * (1 - Math.abs((h % 2) - 1))
@@ -241,11 +293,11 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
       referenceContext.imageSmoothingQuality = 'high'
       referenceContext.drawImage(coastImage, 0, 0, coastWidth, coastHeight, 0, 0, referenceWidth, height)
       const reference = referenceContext.getImageData(0, 0, referenceWidth, height).data
-      const sampleWidth = Math.max(3, Math.round(width * 0.025))
-      const referenceSampleWidth = Math.max(3, Math.round(referenceWidth * 0.025))
-      const blendBand = Math.max(sampleWidth + 2, Math.round(width * 0.155))
+      const sampleWidth = Math.max(3, Math.round(width * 0.035))
+      const referenceSampleWidth = Math.max(3, Math.round(referenceWidth * 0.035))
+      const blendBand = Math.max(sampleWidth + 2, Math.round(width * 0.072))
       const verticalRadius = Math.max(2, Math.round(height * 0.006))
-      const correctionLimit = 48
+      const correctionLimit = 54
       const edgeOffsets = [new Float32Array(height * 3), new Float32Array(height * 3)]
 
       const clampOffset = (value: number) => Math.max(-correctionLimit, Math.min(correctionLimit, value))
@@ -291,7 +343,7 @@ function createGreenForestTexture(source: THREE.Texture, coastSource: THREE.Text
       for (let y = 0; y < height; y += 1) {
         for (let x = 0; x < blendBand; x += 1) {
           const fromEdge = x / Math.max(1, blendBand - 1)
-          const strength = (1 - smoothstep(fromEdge)) * 0.92
+          const strength = (1 - smoothstep(fromEdge)) * 0.96
           if (strength <= 0.001) continue
           const leftIndex = (y * width + x) * 4
           const rightIndex = (y * width + (width - 1 - x)) * 4

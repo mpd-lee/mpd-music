@@ -5,7 +5,9 @@ import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import * as THREE from 'three'
 import type { StudioPlayer } from '@/lib/use-multiplayer'
-import { getIslandGroundHeight } from '@/lib/island-terrain'
+import { getIslandGroundHeight, ISLAND_WALK_RADIUS } from '@/lib/island-terrain'
+import { UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y } from '@/lib/world-depth'
+import { collectStudioCollisionBoxes, findCollisionAwarePath, moveWithCollision, type CollisionBox } from '@/lib/studio-collision'
 import type { WorkoutMode } from '@/lib/studio-interactions'
 
 type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
@@ -26,6 +28,7 @@ type AvatarProps = {
   sitOnArrival?: boolean
   lieOnArrival?: boolean
   seatRotation?: number
+  seatActivity?: 'drums' | null
   onArrive: () => void
   onMove?: (position: [number, number, number], rotationY: number) => void
   displayName?: string
@@ -64,7 +67,7 @@ function ScubaBubbleTrail() {
   )
 }
 
-export function Avatar({ target, instantTravel = false, underwaterMode = false, workoutMode = null, moveVectorRef, sitOnArrival = false, lieOnArrival = false, seatRotation, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
+export function Avatar({ target, instantTravel = false, underwaterMode = false, workoutMode = null, moveVectorRef, sitOnArrival = false, lieOnArrival = false, seatRotation, seatActivity = null, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const leftLeg = useRef<THREE.Group>(null)
@@ -80,30 +83,38 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   const arrived = useRef(false)
   const lastMoveSent = useRef(0)
   const lastSentPosition = useRef(AVATAR_START.clone())
-  const lastSentRotation = useRef(Math.PI)
+  const lastSentRotation = useRef(0)
   const camera = useThree((s) => s.camera)
   const controls = useThree((s) => s.controls) as OrbitControlsImpl | null
+  const scene = useThree((s) => s.scene)
+  const collisionBoxesRef = useRef<CollisionBox[]>([])
+  const collisionRefreshRef = useRef(0)
+  const collisionDirtyRef = useRef(true)
   const prev = useRef(AVATAR_START.clone())
   const route = useRef<THREE.Vector3[]>([])
   const routeIndex = useRef(0)
-  const underwaterDepthRef = useRef(-1.9)
+  const underwaterDepthRef = useRef(-3.0)
 
   useEffect(() => {
     if (!controls || !root.current) return
     const pos = root.current.position
     controls.target.set(pos.x, pos.y + 2.35, pos.z)
-    camera.position.set(pos.x, pos.y + 3.0, pos.z + 7.2)
+    camera.position.set(pos.x, pos.y + 3.15, pos.z - 8.5)
     controls.update()
   }, [resetKey, controls, camera])
 
   useEffect(() => {
     if (!target) return
-    if (underwaterMode) underwaterDepthRef.current = THREE.MathUtils.clamp(target.y, -4.35, 2.35)
+    if (underwaterMode) underwaterDepthRef.current = THREE.MathUtils.clamp(target.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
     sitting.current = false
     lying.current = false
     arrived.current = false
     routeIndex.current = 0
     const current = root.current?.position.clone()
+    // Underwater scenery (reef, cave and panoramic shell) is visual, not a
+    // walkable obstacle. Never build land A* colliders while diving.
+    collisionBoxesRef.current = underwaterMode ? [] : collectStudioCollisionBoxes(scene)
+    collisionDirtyRef.current = false
 
     // Entering or leaving the underwater realm is an intentional portal transition.
     if (instantTravel && root.current) {
@@ -123,37 +134,94 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       return
     }
 
-    // The 180-degree outdoor rotation places the garden exit on world +Z.
-    if (!underwaterMode && current && current.z <= 9.2 && target.z > 9.2) {
-      const laneX = THREE.MathUtils.clamp(current.x, -5.4, 5.4)
-      route.current = [
-        new THREE.Vector3(laneX, current.y, 9.7),
-        new THREE.Vector3(laneX, current.y, target.z <= 12.55 ? 12.25 : 13.2),
-        target.clone(),
-      ]
-    } else if (!underwaterMode && current && current.z > 9.2 && target.z <= 9.2) {
-      const laneX = THREE.MathUtils.clamp(target.x, -5.4, 5.4)
-      route.current = [
-        new THREE.Vector3(laneX, target.y, 13.2),
-        new THREE.Vector3(laneX, target.y, 9.7),
-        target.clone(),
-      ]
+    // Underwater taps become direct 3D swim destinations. A* is only for
+    // land navigation around furniture, walls and equipment.
+    if (underwaterMode) {
+      const destination = target.clone()
+      destination.x = THREE.MathUtils.clamp(destination.x, -146, 78)
+      destination.z = THREE.MathUtils.clamp(destination.z, -98, 126)
+      destination.y = THREE.MathUtils.clamp(destination.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
+      route.current = [destination]
+      return
+    }
+
+    // The pavilion has a broad, curved glass opening at its front. Guide
+    // arrivals/departures through that opening, then let A* route around every
+    // solid object rather than cutting through furniture or equipment.
+    const boxes = collisionBoxesRef.current
+    const isInsidePavilion = (point: THREE.Vector3) => Math.abs(point.x) <= 12.25 && point.z <= 9.25 && point.z >= -9.5
+    if (!underwaterMode && current && (isInsidePavilion(current) !== isInsidePavilion(target))) {
+      const laneX = THREE.MathUtils.clamp(isInsidePavilion(current) ? current.x : target.x, -2.15, 2.15)
+      const gate = new THREE.Vector3(laneX, 0, -11.45)
+      const firstLeg = findCollisionAwarePath(current, gate, boxes, { radius: 0.28, cellSize: 0.72, maxIterations: 42000 })
+      const secondLeg = findCollisionAwarePath(gate, target, boxes, { radius: 0.28, cellSize: 0.72, maxIterations: 42000 })
+      route.current = firstLeg.length && secondLeg.length
+        ? [...firstLeg, ...secondLeg]
+        : findCollisionAwarePath(current, target, boxes, { radius: 0.28, cellSize: 0.72, maxIterations: 42000 })
     } else {
+      route.current = current
+        ? findCollisionAwarePath(current, target, boxes, { radius: underwaterMode ? 0.34 : 0.28, cellSize: 0.72, maxIterations: 42000 })
+        : [target.clone()]
+    }
+    if (!route.current.length && current) {
+      route.current = findCollisionAwarePath(current, target, boxes, {
+        radius: underwaterMode ? 0.30 : 0.24,
+        cellSize: 0.62,
+        maxIterations: 65000,
+      })
+    }
+    if (!route.current.length && current) {
+      route.current = findCollisionAwarePath(current, target, boxes, {
+        radius: 0.18,
+        cellSize: 0.52,
+        maxIterations: 90000,
+      })
+    }
+    if (!route.current.length) {
+      // Last resort is still not a teleport or noclip: moveWithCollision sweeps
+      // every small step and slides/stops at solid objects. This keeps click-to-move
+      // responsive even when a dense furniture collider makes A* return no route.
       route.current = [target.clone()]
     }
-  }, [target, instantTravel, underwaterMode, controls, camera, onArrive])
+    // Correct intermediate land waypoints to the shared terrain height field.
+    // Preserve the final object's authored height so seats, beds and gym stations
+    // still receive the avatar at their intended interaction point.
+    if (!underwaterMode) {
+      const lastIndex = route.current.length - 1
+      route.current = route.current.map((point, index) => {
+        const inside = Math.abs(point.x) <= 12.25 && point.z <= 9.25 && point.z >= -9.5
+        const y = index === lastIndex
+          ? target.y
+          : inside ? 0 : getIslandGroundHeight(-point.x, -point.z)
+        return new THREE.Vector3(point.x, y, point.z)
+      })
+    }
+  }, [target, instantTravel, underwaterMode, controls, camera, onArrive, scene])
 
-  useFrame((_, rawDt) => {
+  useEffect(() => {
+    collisionDirtyRef.current = true
+  }, [underwaterMode, scene])
+
+  useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
     const g = root.current
     if (!g) return
+    if (!underwaterMode && (collisionDirtyRef.current || state.clock.elapsedTime - collisionRefreshRef.current > 0.9)) {
+      collisionBoxesRef.current = collectStudioCollisionBoxes(scene)
+      collisionRefreshRef.current = state.clock.elapsedTime
+      collisionDirtyRef.current = false
+    }
+    const colliders = collisionBoxesRef.current
     let moving = false
     const input = moveVectorRef.current
     const inputLength = Math.hypot(input.x, input.z)
 
     if (underwaterMode && Math.abs(input.y ?? 0) > 0.04) {
       arrived.current = true
-      g.position.y = THREE.MathUtils.clamp(g.position.y + THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * 2.55 * dt, -4.45, 2.45)
+      const verticalStep = THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * 3.8 * dt
+      const candidateY = THREE.MathUtils.clamp(g.position.y + verticalStep, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
+      // Free vertical buoyancy: reef colliders must never trap the diver.
+      g.position.y = candidateY
       underwaterDepthRef.current = g.position.y
       moving = true
     }
@@ -171,8 +239,10 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       const direction = right.multiplyScalar(input.x).addScaledVector(forward, -input.z)
       if (direction.lengthSq() > 0.001) {
         direction.normalize()
-        const speed = underwaterMode ? 3.15 : SPEED
-        g.position.addScaledVector(direction, speed * dt)
+        const speed = underwaterMode ? 4.0 : SPEED
+        const displacement = direction.clone().multiplyScalar(speed * dt)
+        if (underwaterMode) g.position.add(displacement)
+        else moveWithCollision(g.position, displacement, colliders, { radius: 0.28, height: 1.72 })
         const desired = Math.atan2(direction.x, direction.z)
         let diff = desired - g.rotation.y
         diff = Math.atan2(Math.sin(diff), Math.cos(diff))
@@ -198,10 +268,11 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         // Keep click-to-move responsive while the avatar smoothly turns toward the destination.
         const moveSpeed = underwaterMode ? 3.05 : swimming.current && g.position.y < -0.8 ? 3.05 : swimming.current ? 3.35 : SPEED
         const step = Math.min(dist, moveSpeed * dt)
-        g.position.x += (dx / dist) * step
-        g.position.z += (dz / dist) * step
+        const movement = new THREE.Vector3((dx / dist) * step, underwaterMode ? (dy / dist) * step : 0, (dz / dist) * step)
+        if (underwaterMode) g.position.add(movement)
+        else moveWithCollision(g.position, movement, colliders, { radius: 0.28, height: 1.72 })
         if (underwaterMode) {
-          g.position.y += (dy / dist) * step
+          g.position.y = THREE.MathUtils.clamp(g.position.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
           underwaterDepthRef.current = g.position.y
         } else {
           g.position.y = THREE.MathUtils.lerp(g.position.y, waypoint.y, Math.min(1, dt * 5.5))
@@ -219,7 +290,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     }
 
     // Outdoor is rotated by 180 degrees, placing the garden and pool on world +Z.
-    const inPoolWater = Math.abs(g.position.x) < 8.05 && g.position.z >= 12.65 && g.position.z <= 21.35
+    const inPoolWater = !underwaterMode && g.position.x >= -43.8 && g.position.x <= -24.2 && g.position.z >= 8.6 && g.position.z <= 19.4
     swimming.current = underwaterMode || inPoolWater
     diving.current = underwaterMode || (inPoolWater && g.position.y < -0.82)
     if (showScubaGear !== diving.current) setShowScubaGear(diving.current)
@@ -233,21 +304,27 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         // Gentle neutral buoyancy when no vertical input is held.
         g.position.y = THREE.MathUtils.lerp(g.position.y, underwaterDepthRef.current + Math.sin(phase.current * 1.05) * 0.018, 0.025)
       }
-    } else if (!sitting.current && !lying.current && (g.position.z > 9.2 || Math.abs(g.position.x) > 12.2)) {
+    } else if (!sitting.current && !lying.current && !workoutMode && (g.position.z > 9.2 || Math.abs(g.position.x) > 12.2)) {
       const onPoolDeck = Math.abs(g.position.x) <= 9.4 && g.position.z >= 11.3 && g.position.z <= 22.7
-      const groundY = onPoolDeck ? 0.015 : getIslandGroundHeight(g.position.x, g.position.z)
+      const groundY = onPoolDeck ? 0.015 : getIslandGroundHeight(-g.position.x, -g.position.z)
       g.position.y = THREE.MathUtils.lerp(g.position.y, groundY, Math.min(1, dt * 9))
     }
 
     // Keep walking avatars on the walkable island instead of allowing them to drift beyond the terrain mesh.
     if (!underwaterMode && !swimming.current) {
       const radius = Math.hypot(g.position.x, g.position.z)
-      const maxRadius = 74.2
+      const maxRadius = ISLAND_WALK_RADIUS - 0.8
       if (radius > maxRadius) {
         const scale = maxRadius / radius
         g.position.x *= scale
         g.position.z *= scale
       }
+    } else if (underwaterMode) {
+      // Keep free-swimming movement inside the underwater exploration volume.
+      g.position.x = THREE.MathUtils.clamp(g.position.x, -112, 44)
+      g.position.z = THREE.MathUtils.clamp(g.position.z, -64, 92)
+      g.position.y = THREE.MathUtils.clamp(g.position.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
+      underwaterDepthRef.current = g.position.y
     }
 
     phase.current += dt * (moving ? 10 : sitting.current ? 1.5 : swimming.current ? 5.2 : 2)
@@ -262,8 +339,21 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     let bodyRotX = swimming.current ? (diving.current ? -0.68 : -0.24) : lying.current ? -1.34 : sitting.current ? -0.06 : 0
     let bodyRotZ = 0
     let bodyY = swimming.current
-      ? 0.34 + Math.sin(phase.current * 1.15) * 0.025
+      ? (underwaterMode ? 0.13 : 0.34) + Math.sin(phase.current * 1.15) * 0.025
       : lying.current ? 0.25 : sitting.current ? 0.17 : moving ? Math.abs(Math.sin(phase.current)) * 0.05 : Math.sin(phase.current) * 0.012
+
+    // A seated drummer alternates both forearms toward the snare and cymbals.
+    if (sitting.current && seatActivity === 'drums') {
+      const hitLeft = Math.max(0, Math.sin(phase.current * 4.2))
+      const hitRight = Math.max(0, Math.sin(phase.current * 4.2 + Math.PI))
+      leftArmTarget = -1.12 - hitLeft * 0.72
+      rightArmTarget = -1.12 - hitRight * 0.72
+      leftLegTarget = -1.05 + Math.sin(phase.current * 2.1) * 0.08
+      rightLegTarget = -1.05 - Math.sin(phase.current * 2.1) * 0.08
+      bodyRotX = -0.12
+      bodyRotZ = Math.sin(phase.current * 2.1) * 0.025
+      bodyY = 0.17 + Math.abs(Math.sin(phase.current * 4.2)) * 0.012
+    }
 
     // The avatar now performs a matching pose while the selected piece of gym equipment runs.
     const exercise = arrived.current && !swimming.current ? workoutMode : null
@@ -375,8 +465,19 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     if (controls) {
       const delta = g.position.clone().sub(prev.current)
       if (delta.lengthSq() > 0) {
-        controls.target.add(delta)
-        camera.position.add(delta)
+        if (underwaterMode) {
+          // Partial vertical camera follow makes ascent/descent visible in-frame;
+          // a full Y lock made the diver appear stationary against the background.
+          const targetDelta = delta.clone()
+          const cameraDelta = delta.clone()
+          targetDelta.y *= 0.68
+          cameraDelta.y *= 0.38
+          controls.target.add(targetDelta)
+          camera.position.add(cameraDelta)
+        } else {
+          controls.target.add(delta)
+          camera.position.add(delta)
+        }
         controls.update()
       }
     }
@@ -397,7 +498,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   })
 
   return (
-    <group ref={root} position={AVATAR_START.toArray()} rotation-y={Math.PI}>
+    <group ref={root} position={AVATAR_START.toArray()} rotation-y={0} userData={{ mpdNoCollision: true }}>
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.01, 0]}>
         <circleGeometry args={[0.32, 24]} />
         <meshBasicMaterial color="#000" transparent opacity={0.22} depthWrite={false} />
@@ -440,6 +541,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
             <sphereGeometry args={[0.05, 12, 12]} />
             <meshStandardMaterial color={SKIN} roughness={0.7} />
           </mesh>
+          {seatActivity === 'drums' && <mesh position={[-0.03, -0.29, 0.15]} rotation-x={Math.PI / 2} castShadow><cylinderGeometry args={[0.009, 0.013, 0.38, 7]} /><meshStandardMaterial color="#c69b61" roughness={0.72} /></mesh>}
         </group>
         <group ref={rightArm} position={[0.25, 0.7, 0]}>
           <mesh position={[0, -0.13, 0]} rotation-z={-0.15} castShadow>
@@ -450,6 +552,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
             <sphereGeometry args={[0.05, 12, 12]} />
             <meshStandardMaterial color={SKIN} roughness={0.7} />
           </mesh>
+          {seatActivity === 'drums' && <mesh position={[0.03, -0.29, 0.15]} rotation-x={Math.PI / 2} castShadow><cylinderGeometry args={[0.009, 0.013, 0.38, 7]} /><meshStandardMaterial color="#c69b61" roughness={0.72} /></mesh>}
         </group>
         <group position={[0, 1.08, 0]}>
           <mesh castShadow>
@@ -551,6 +654,7 @@ export function RemoteAvatar({ player, onSelect }: { player: StudioPlayer; onSel
       ref={groupRef}
       position={initialPosition}
       rotation-y={initialRotation}
+      userData={{ mpdNoCollision: true }}
       onClick={handleClick}
       onPointerOver={() => { document.body.style.cursor = 'pointer' }}
       onPointerOut={() => { document.body.style.cursor = 'auto' }}

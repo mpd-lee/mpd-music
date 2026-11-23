@@ -18,6 +18,7 @@ import { Outdoor, SUN_POSITION } from './outdoor'
 import { ROOM, Room } from './room'
 import { StudioFurniture } from './studio-furniture'
 import { UnderwaterWorld } from './underwater-world'
+import { UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y } from '@/lib/world-depth'
 import { PlayerControls } from '../player-controls'
 
 const DEFAULT_ORBIT_TARGET: [number, number, number] = [AVATAR_START.x, 2.35, AVATAR_START.z]
@@ -27,8 +28,51 @@ const INTERIOR_LIGHTS: [number, number, number][] = [
   [-7.5, 6.8, 4], [0, 7.1, 4], [7.5, 6.8, 4],
 ]
 
+// Outdoor is rendered inside a 180-degree rotated group, so world X/Z must
+// be inverted before sampling its asymmetric terrain height field.
+function getWorldIslandGroundHeight(x: number, z: number) {
+  return getIslandGroundHeight(-x, -z)
+}
+
+function intersectIslandSurface(ray: THREE.Ray, fallback: THREE.Vector3) {
+  // Find the first positive ray/height-field crossing. A bracketed binary search
+  // is stable on the island's rolling lawn and its sloped outer walkable edge.
+  if (Math.abs(ray.direction.y) < 0.00005) return fallback.clone()
+  const samplePoint = new THREE.Vector3()
+  const errorAt = (distance: number) => {
+    ray.at(distance, samplePoint)
+    if (Math.hypot(samplePoint.x, samplePoint.z) > ISLAND_WALK_RADIUS + 0.25) return Number.POSITIVE_INFINITY
+    return samplePoint.y - getWorldIslandGroundHeight(samplePoint.x, samplePoint.z)
+  }
+
+  let previousDistance = 0.05
+  let previousError = errorAt(previousDistance)
+  if (!Number.isFinite(previousError)) return fallback.clone()
+
+  const step = 0.32
+  for (let distance = previousDistance + step; distance <= 260; distance += step) {
+    const error = errorAt(distance)
+    if (!Number.isFinite(error)) break
+    if (previousError >= 0 && error <= 0) {
+      let low = previousDistance
+      let high = distance
+      for (let iteration = 0; iteration < 16; iteration += 1) {
+        const middle = (low + high) * 0.5
+        if (errorAt(middle) > 0) low = middle
+        else high = middle
+      }
+      ray.at((low + high) * 0.5, samplePoint)
+      samplePoint.y = getWorldIslandGroundHeight(samplePoint.x, samplePoint.z)
+      return samplePoint.clone()
+    }
+    previousDistance = distance
+    previousError = error
+  }
+  return fallback.clone()
+}
+
 type TravelAction = { position: THREE.Vector3; sit: boolean; lie?: boolean; rotationY?: number; instant?: boolean }
-type SeatHandler = (position: [number, number, number], rotationY: number) => void
+type SeatHandler = (position: [number, number, number], rotationY: number, activity?: 'drums' | null) => void
 type RestHandler = (position: [number, number, number], rotationY: number) => void
 type MoveVector = { x: number; z: number; y?: number }
 
@@ -69,6 +113,7 @@ export function StudioScene({
   const [travel, setTravel] = useState<TravelAction | null>(null)
   const [underwater, setUnderwater] = useState(false)
   const [workoutMode, setWorkoutMode] = useState<FitnessKind | null>(null)
+  const [seatActivity, setSeatActivity] = useState<'drums' | null>(null)
   const workoutModeRef = useRef<FitnessKind | null>(null)
   const underwaterRef = useRef(false)
   const localPositionRef = useRef(new THREE.Vector3(0, 0, 4.2))
@@ -82,19 +127,16 @@ export function StudioScene({
 
   const handleLocalPosition = useCallback((position: [number, number, number], rotationY: number) => {
     localPositionRef.current.set(position[0], position[1], position[2])
-    // Walking directly into the pool also enters the underwater realm.
-    if (!underwaterRef.current && Math.abs(position[0]) <= 7.85 && position[2] >= 13.0 && position[2] <= 21.0) {
-      window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
-      underwaterRef.current = true
-      setUnderwater(true)
-      setTravel(null)
-    } else if (underwaterRef.current && position[1] > 0.18) {
+    // Only the actual PoolWater mesh may initiate a dive. Walking or clicking on
+    // the surrounding deck remains ordinary ground navigation, so the pool's
+    // broad visual bounds cannot pull a nearby destination underwater.
+    if (underwaterRef.current && position[1] >= 0.10) {
       // Reaching the surface restores the outdoor scene and normal clothes automatically.
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       underwaterRef.current = false
       setUnderwater(false)
       setTravel({
-        position: new THREE.Vector3(THREE.MathUtils.clamp(position[0], -7.2, 7.2), 0.03, 11.15),
+        position: new THREE.Vector3(THREE.MathUtils.clamp(position[0], -42.0, -26.0), 0.03, 9.0),
         sit: false,
         instant: true,
       })
@@ -106,7 +148,11 @@ export function StudioScene({
     moveVectorRef.current = { x: value.x, z: value.z, y: value.y ?? 0 }
     // Manual steering immediately cancels an active click-to-walk route.
     if (Math.hypot(value.x, value.z) > 0.04 || Math.abs(value.y ?? 0) > 0.04) {
+      // A manual movement cancels a pending pool entry so an old water tap cannot
+      // teleport the visitor into the pool after they have steered somewhere else.
+      pendingPoolEntry.current = null
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+      setSeatActivity(null)
       setTravel((current) => current ? null : current)
     }
   }, [])
@@ -118,7 +164,7 @@ export function StudioScene({
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       underwaterRef.current = true
       setUnderwater(true)
-      setTravel({ position: new THREE.Vector3(poolTarget.x, -1.9, poolTarget.z), sit: false, instant: true })
+      setTravel({ position: new THREE.Vector3(poolTarget.x, -3.0, poolTarget.z), sit: false, instant: true })
       return
     }
     const selectedWorkout = workoutModeRef.current
@@ -133,7 +179,7 @@ export function StudioScene({
     pendingPoolEntry.current = null
     underwaterRef.current = false
     setUnderwater(false)
-    const exit = new THREE.Vector3(0, 0.03, 11.15)
+    const exit = new THREE.Vector3(-34, 0.03, 9.0)
     setTravel({ position: exit, sit: false, instant: true })
   }, [])
 
@@ -147,6 +193,16 @@ export function StudioScene({
     checkHour()
     const timer = setInterval(checkHour, 60000)
     return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    const onNavigationBlocked = () => {
+      setTravel(null)
+      pendingPoolEntry.current = null
+      window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+    }
+    window.addEventListener('mpd-navigation-blocked', onNavigationBlocked)
+    return () => window.removeEventListener('mpd-navigation-blocked', onNavigationBlocked)
   }, [])
 
   useEffect(() => {
@@ -190,12 +246,14 @@ export function StudioScene({
 
   const handleSlowFrame = useCallback(() => {
     setGraphicsTier((current) => current === 'high' ? 'balanced' : current === 'balanced' ? 'mobile' : 'mobile')
-    setAdaptiveDpr((current) => Math.max(0.86, Number((current - 0.05).toFixed(2))))
+    setAdaptiveDpr((current) => Math.max(0.72, Number((current - 0.05).toFixed(2))))
   }, [])
 
   const handleFloorClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta > CLICK_DRAG_TOLERANCE) return
+    setSeatActivity(null)
+    pendingPoolEntry.current = null
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     underwaterRef.current = false
     setUnderwater(false)
@@ -210,36 +268,88 @@ export function StudioScene({
     })
   }, [])
 
+  const handlePoolClick = useCallback((e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation()
+    if (e.delta > CLICK_DRAG_TOLERANCE) return
+    setSeatActivity(null)
+    pendingPoolEntry.current = null
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+    // The pool is placed in the left garden, preserving the straight-ahead ocean view.
+    const x = THREE.MathUtils.clamp(e.point.x, -42.0, -26.0)
+    const z = THREE.MathUtils.clamp(e.point.z, 10.0, 18.0)
+    const current = localPositionRef.current
+    // Walk to the closest dry coping edge before entering the water.
+    const edgeCandidates: THREE.Vector3[] = [
+      new THREE.Vector3(THREE.MathUtils.clamp(current.x, -42.0, -26.0), 0.02, 9.0),
+      new THREE.Vector3(THREE.MathUtils.clamp(current.x, -42.0, -26.0), 0.02, 19.0),
+      new THREE.Vector3(-43.5, 0.02, THREE.MathUtils.clamp(current.z, 10.0, 18.0)),
+      new THREE.Vector3(-24.5, 0.02, THREE.MathUtils.clamp(current.z, 10.0, 18.0)),
+    ]
+    const approach = edgeCandidates.reduce((best, candidate) =>
+      candidate.distanceToSquared(current) < best.distanceToSquared(current) ? candidate : best,
+    )
+    pendingPoolEntry.current = { x, z }
+    underwaterRef.current = false
+    setUnderwater(false)
+    setTravel({ position: approach, sit: false })
+  }, [])
+
   const handlePathClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta > CLICK_DRAG_TOLERANCE) return
+    setSeatActivity(null)
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
 
-    let x = e.point.x
-    let z = e.point.z
-
     if (underwaterRef.current) {
-      // Underwater clicks use the actual camera ray, not the seabed hit point.
-      // A transparent spherical pick surface makes the whole view clickable,
-      // including the water column above the diver where no floor is visible.
+      // Convert the clicked screen position into an explicit 3D swim destination.
+      // The previous approach blended vertical intent with a far-away sphere hit;
+      // on a perspective camera that often produced almost no depth change.
+      // Here the screen's vertical coordinate maps directly to water depth, while
+      // the ray's horizontal direction selects the swimming direction. Mouse and
+      // touch therefore use the same deterministic 3-axis destination.
       const current = localPositionRef.current
-      const swimShell = new THREE.Sphere(current.clone(), 13.5)
-      const rayHit = e.ray.intersectSphere(swimShell, new THREE.Vector3())
-      const rayDirection = e.ray.direction.clone().normalize()
-      const horizontal = new THREE.Vector2(rayDirection.x, rayDirection.z)
-      if (horizontal.lengthSq() < 0.0001) horizontal.set(0, -1)
-      horizontal.normalize()
-      // The marker is placed at the clicked screen-ray location on a 3D swim shell,
-      // rather than at a fixed guessed offset from the diver.
-      x = THREE.MathUtils.clamp(rayHit?.x ?? current.x + horizontal.x * 13.5, -43, 43)
-      z = THREE.MathUtils.clamp(rayHit?.z ?? current.z + horizontal.y * 13.5, -27, 61)
-      // Three's pointer.y is normalized device-coordinate: top=+1, bottom=-1.
-      // The vertical component becomes a reachable depth target in the water column.
       const pointerY = THREE.MathUtils.clamp(e.pointer.y, -1, 1)
-      const swimY = THREE.MathUtils.clamp(current.y + pointerY * 4.8, -4.35, 0.42)
+      // Use both the actual 3D pick ray and screen position. A tap in the upper
+      // half creates an upward destination relative to the diver; a lower tap
+      // creates a deeper destination. Unlike a fixed Y preset, repeated taps can
+      // move the diver through several depth levels in one continuous swim.
+      const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.5, 0.5)
+      // Screen-space intent is stable on both mouse and touch: upper taps ascend,
+      // lower taps dive, while a tap near the center primarily swims forward.
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 4.2 + rayVertical * 0.65, -4.6, 4.6)
+      const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
+
+      const horizontalDirection = e.ray.direction.clone()
+      horizontalDirection.y = 0
+      if (horizontalDirection.lengthSq() < 0.0025) {
+        horizontalDirection.set(0, 0, -1)
+      } else {
+        horizontalDirection.normalize()
+      }
+      // Upper/lower taps prioritise vertical movement; middle taps swim farther
+      // along the camera-facing horizontal direction.
+      const horizontalDistance = 4.0 + (1 - Math.abs(pointerY)) * 7.5
+      const x = THREE.MathUtils.clamp(current.x + horizontalDirection.x * horizontalDistance, -146, 78)
+      const z = THREE.MathUtils.clamp(current.z + horizontalDirection.z * horizontalDistance, -98, 126)
       setTravel({ position: new THREE.Vector3(x, swimY, z), sit: false })
       return
     }
+
+    // When the real island mesh receives the pointer event, e.point is already
+    // the exact world-space hit. Prefer it; the ray/height-field fallback is only
+    // needed for the large transparent navigation plane. This prevents a nearby
+    // machine, pool edge, or shallow camera ray from producing a wrong destination.
+    // Any outdoor ground tap cancels an older pool-water request before a new route starts.
+    pendingPoolEntry.current = null
+    const eventPointRadius = Math.hypot(e.point.x, e.point.z)
+    const hasUsableTerrainHit = Number.isFinite(e.point.x)
+      && Number.isFinite(e.point.z)
+      && eventPointRadius <= ISLAND_WALK_RADIUS + 0.5
+    const groundPoint = hasUsableTerrainHit
+      ? new THREE.Vector3(e.point.x, getWorldIslandGroundHeight(e.point.x, e.point.z), e.point.z)
+      : intersectIslandSurface(e.ray, e.point)
+    let x = groundPoint.x
+    let z = groundPoint.z
 
     const radius = Math.hypot(x, z)
     if (radius > ISLAND_WALK_RADIUS) {
@@ -248,23 +358,18 @@ export function StudioScene({
       z *= scale
     }
 
-    // Outdoor is rotated by 180 degrees, so the pool is on world +Z.
-    const inPool = Math.abs(x) <= 8.1 && z >= 12.65 && z <= 21.35
-    if (inPool) {
-      // Do not teleport from the studio: walk to the near pool lip, then the arrival callback performs the dive.
-      pendingPoolEntry.current = { x: THREE.MathUtils.clamp(x, -7.25, 7.25), z: THREE.MathUtils.clamp(z, 13.0, 21.0) }
-      underwaterRef.current = false
-      setUnderwater(false)
-      setTravel({ position: new THREE.Vector3(THREE.MathUtils.clamp(x, -7.25, 7.25), 0.02, 12.25), sit: false })
-      return
-    }
-
     underwaterRef.current = false
     setUnderwater(false)
-    setTravel({ position: new THREE.Vector3(x, getIslandGroundHeight(x, z), z), sit: false })
+    // The pool's travertine deck is raised slightly above the island lawn. Keep
+    // that exact deck height rather than projecting it down onto the island field.
+    const onPoolDeck = Math.abs(x) <= 9.45 && z >= 11.3 && z <= 22.7
+    const groundY = onPoolDeck ? 0.02 : getWorldIslandGroundHeight(x, z)
+    setTravel({ position: new THREE.Vector3(x, groundY, z), sit: false })
   }, [])
 
-  const handleSeat: SeatHandler = useCallback((position: [number, number, number], rotationY: number) => {
+  const handleSeat: SeatHandler = useCallback((position: [number, number, number], rotationY: number, activity: 'drums' | null = null) => {
+    setSeatActivity(activity)
+    pendingPoolEntry.current = null
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     underwaterRef.current = false
     setUnderwater(false)
@@ -272,6 +377,8 @@ export function StudioScene({
   }, [])
 
   const handleRest: RestHandler = useCallback((position: [number, number, number], rotationY: number) => {
+    setSeatActivity(null)
+    pendingPoolEntry.current = null
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     underwaterRef.current = false
     setUnderwater(false)
@@ -279,11 +386,22 @@ export function StudioScene({
   }, [])
 
   const handleStand: RestHandler = useCallback((position: [number, number, number], rotationY: number) => {
+    setSeatActivity(null)
+    pendingPoolEntry.current = null
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
     underwaterRef.current = false
     setUnderwater(false)
     setTravel({ position: new THREE.Vector3(position[0], position[1], position[2]), sit: false, lie: false, rotationY })
   }, [])
+
+  // Interior objects are visually rotated with the pavilion. Convert their local interaction targets
+  // through the same 180-degree transform before asking the world-space avatar to walk there.
+  const handleStudioSeat: SeatHandler = useCallback((position, rotationY, activity: 'drums' | null = null) => {
+    handleSeat([-position[0], position[1], -position[2]], rotationY + Math.PI, activity)
+  }, [handleSeat])
+  const handleStudioRest: RestHandler = useCallback((position, rotationY) => {
+    handleRest([-position[0], position[1], -position[2]], rotationY + Math.PI)
+  }, [handleRest])
 
   if (graphicsTier === null) {
     return <div className="flex h-full w-full items-center justify-center bg-slate-950 text-sm text-emerald-100">기기 성능에 맞게 스튜디오 그래픽을 설정하고 있습니다…</div>
@@ -296,12 +414,12 @@ export function StudioScene({
         dpr={Math.min(graphics.dpr, adaptiveDpr)}
         performance={{ min: 0.45, max: 1, debounce: 180 }}
         gl={{ antialias: graphics.antialias, powerPreference: 'high-performance', precision: 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 1.12 : 1.04, stencil: false, preserveDrawingBuffer: false }}
-        camera={{ position: [AVATAR_START.x, 3.0, AVATAR_START.z + 7.2], fov: 55, near: 0.1, far: 1200 }}
+        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: 48, near: 0.1, far: 1200 }}
         onPointerMissed={() => { document.body.style.cursor = 'auto' }}
       >
         <color attach="background" args={[underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7']} />
         <fog attach="fog" args={underwater
-          ? ['#075a79', 18, 92]
+          ? ['#07506a', 34, 292]
           : [isNight ? '#0b1329' : '#d8edf5', 420, 1250]}
         />
 
@@ -336,21 +454,24 @@ export function StudioScene({
         <AdaptiveFrameGuard tier={graphicsTier} onSlowFrame={handleSlowFrame} />
 
         {underwater ? (
-          <UnderwaterWorld onPathClick={handlePathClick} quality={graphicsTier} />
+          <UnderwaterWorld onPathClick={handlePathClick} quality={graphicsTier} playerPositionRef={localPositionRef} />
         ) : (
           <>
-            <Suspense fallback={null}><Outdoor onPathClick={handlePathClick} onSeat={handleSeat} onRest={handleRest} onStand={handleStand} quality={graphicsTier} /></Suspense>
-            <Room onFloorClick={handleFloorClick} quality={graphicsTier} />
-            <Suspense fallback={null}><ControlRoom onSit={handleSeat} /></Suspense>
-            <Suspense fallback={null}><Instruments onSeat={handleSeat} /></Suspense>
-            <Suspense fallback={null}><StudioFurniture onSeat={handleSeat} onRest={handleRest} /></Suspense>
-            <CandleBench entries={entries} />
+            <Suspense fallback={null}><Outdoor onPathClick={handlePathClick} onPoolClick={handlePoolClick} onSeat={handleSeat} onRest={handleRest} onStand={handleStand} quality={graphicsTier} /></Suspense>
+            {/* Rotate the complete pavilion 180 degrees so its ocean glass wall faces the existing front bay. */}
+            <group rotation-y={Math.PI}>
+              <Room onFloorClick={handleFloorClick} quality={graphicsTier} />
+              <Suspense fallback={null}><ControlRoom onSit={handleStudioSeat} /></Suspense>
+              <Suspense fallback={null}><Instruments onSeat={handleStudioSeat} /></Suspense>
+              <Suspense fallback={null}><StudioFurniture onSeat={handleStudioSeat} onRest={handleStudioRest} /></Suspense>
+              <CandleBench entries={entries} />
+            </group>
           </>
         )}
 
         {!underwater && (
-          <mesh position={[0, -12, 0]} rotation-x={-Math.PI / 2} onClick={handlePathClick}>
-            <planeGeometry args={[180, 180]} />
+          <mesh position={[0, -0.04, 0]} rotation-x={-Math.PI / 2} onClick={handlePathClick}>
+            <planeGeometry args={[190, 190]} />
             <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.DoubleSide} />
           </mesh>
         )}
@@ -360,6 +481,7 @@ export function StudioScene({
           sitOnArrival={travel?.sit ?? false}
           lieOnArrival={travel?.lie ?? false}
           seatRotation={travel?.rotationY}
+          seatActivity={seatActivity}
           instantTravel={travel?.instant ?? false}
           underwaterMode={underwater}
           workoutMode={workoutMode}
@@ -370,7 +492,7 @@ export function StudioScene({
           resetKey={resetKey}
         />
         {players
-          .filter((player) => !underwater || (player.position[2] >= -30 && player.position[2] <= 64))
+          .filter((player) => !underwater || (player.position[0] >= -146 && player.position[0] <= 78 && player.position[2] >= -98 && player.position[2] <= 126))
           .map((player) => <RemoteAvatar key={player.userId} player={player} onSelect={onSelectPlayer} />)}
         <TargetMarker target={target} underwater={underwater} />
 
@@ -380,10 +502,10 @@ export function StudioScene({
           enableDamping
           dampingFactor={0.08}
           rotateSpeed={graphicsTier === 'mobile' ? 0.48 : 0.68}
-          minDistance={graphicsTier === 'mobile' ? 3.2 : 2.2}
-          maxDistance={underwater ? 42 : graphicsTier === 'mobile' ? 68 : 96}
-          minPolarAngle={0.82}
-          maxPolarAngle={1.62}
+          minDistance={graphicsTier === 'mobile' ? 4.2 : 3.8}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 64 : 78) : graphicsTier === 'mobile' ? 48 : 54}
+          minPolarAngle={underwater ? 0.10 : 1.14}
+          maxPolarAngle={underwater ? Math.PI - 0.10 : 1.52}
           target={DEFAULT_ORBIT_TARGET}
         />
       </Canvas>
@@ -392,7 +514,7 @@ export function StudioScene({
       {underwater && (
         <div className="mpd-underwater-hud">
           <div className="mpd-underwater-title"><span className="mpd-underwater-live-dot" /> SCUBA EXPLORATION</div>
-          <div className="mpd-underwater-subtitle">산호 정원 · 열대어 무리 · 바다거북 · 만타가오리</div>
+          <div className="mpd-underwater-subtitle">최대 수심 약 75m · 360° 산호초 · 자연 암굴 · 자유 잠수</div>
           <button type="button" onClick={riseToSurface} className="mpd-surface-button">↑ 수면으로 올라와 스튜디오로 돌아가기</button>
         </div>
       )}
