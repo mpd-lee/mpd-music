@@ -179,7 +179,12 @@ function GrandPiano(props: { position: [number, number, number]; rotationY: numb
         label="그랜드 피아노 벤치에 앉기"
         labelOffset={[0, 0.72, 0]}
         position={[0, 0, 0.85]}
-        onActivate={() => props.onSeat(worldSeatPoint(props.position, props.rotationY, [0, 0, 0.93]), props.rotationY + Math.PI)}
+        onActivate={() => {
+          props.onSeat(worldSeatPoint(props.position, props.rotationY, [0, 0, 0.93]), props.rotationY + Math.PI)
+          window.dispatchEvent(new CustomEvent('mpd-play-youtube-track', {
+            detail: { videoId: 'n2-eVFb_X48', title: '그랜드 피아노 연주곡', startSeconds: 12170 },
+          }))
+        }}
       >
         <mesh position={[0, 0.25, 0]} castShadow receiveShadow>
           <boxGeometry args={[0.85, 0.08, 0.36]} />
@@ -333,12 +338,14 @@ function electricGuitarBodyShape() {
 
 function Guitar({ position, rotationY = 0, color, kind }: { position: [number, number, number]; rotationY?: number; color: string; kind: 'bass' | 'acoustic' | 'electric' }) {
   const shapes = useMemo(() => kind === 'electric' ? electricGuitarBodyShape() : guitarBodyShape(), [kind])
-  const label = kind === 'bass' ? '베이스 기타 · Spotify 반복 재생' : kind === 'electric' ? '일렉트릭 기타 · Spotify 반복 재생' : '어쿠스틱 기타 · MPD Music 채널'
+  const label = kind === 'bass' ? '베이스 기타 · Spotify 반복 재생' : kind === 'electric' ? '일렉트릭 기타 · Spotify 반복 재생' : '어쿠스틱 기타 · YouTube 반복 재생'
   const openTrack = () => {
     if (kind === 'bass' || kind === 'electric') {
       window.dispatchEvent(new CustomEvent('mpd-play-spotify-track', { detail: { track: kind } }))
     } else {
-      window.open('https://www.youtube.com/@MPD_Music', '_blank', 'noopener,noreferrer')
+      window.dispatchEvent(new CustomEvent('mpd-play-youtube-track', {
+        detail: { videoId: 'B-lqRUSCsIA', title: '어쿠스틱 기타 연주곡', startSeconds: 0 },
+      }))
     }
   }
   const neckHeight = kind === 'bass' ? 0.9 : 0.68
@@ -531,7 +538,7 @@ export function Instruments({ onSeat }: { onSeat: SeatHandler }) {
       <Guitar position={[9.0, 0, 5.2]} rotationY={-2.2} color="#172b2b" kind="bass" />
       <Guitar position={[10.4, 0, 4.4]} rotationY={-2.0} color="#b84f3d" kind="electric" />
       {/* Restore the original acoustic guitar as a third instrument; bass and electric remain in place. */}
-      <Guitar position={[12.25, 0, 4.65]} rotationY={-2.0} color="#b8793e" kind="acoustic" />
+      <Guitar position={[11.35, 0, 3.9]} rotationY={-2.0} color="#b8793e" kind="acoustic" />
       <StageKeyboard position={[-9.6, 0, -0.6]} rotationY={1.3} instrument="rhodes" />
       <StageKeyboard position={[-9.6, 0, -3.0]} rotationY={1.3} instrument="synth" />
     </group>

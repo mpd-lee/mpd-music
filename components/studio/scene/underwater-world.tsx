@@ -341,7 +341,7 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
   const dome = useRef<THREE.Mesh>(null)
   const source = useTexture(quality === 'mobile' ? '/images/mpd-underwater-real-panorama-mobile.webp' : '/images/mpd-underwater-real-panorama.webp')
   const texture = useMemo(() => createCleanUnderwaterTexture(source, quality), [source, quality])
-  const geometry = useMemo(() => new THREE.SphereGeometry(252, quality === 'mobile' ? 48 : quality === 'balanced' ? 72 : 88, quality === 'mobile' ? 28 : quality === 'balanced' ? 44 : 52), [quality])
+  const geometry = useMemo(() => new THREE.SphereGeometry(360, quality === 'mobile' ? 48 : quality === 'balanced' ? 72 : 88, quality === 'mobile' ? 28 : quality === 'balanced' ? 44 : 52), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
@@ -984,7 +984,7 @@ function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: 
   }, [texture, quality])
   const geometry = useMemo(() => {
     const segments = quality === 'mobile' ? 24 : quality === 'balanced' ? 38 : 56
-    const plane = new THREE.PlaneGeometry(420, 420, segments * 2, segments * 2)
+    const plane = new THREE.PlaneGeometry(620, 620, segments * 2, segments * 2)
     const positions = plane.attributes.position as THREE.BufferAttribute
     for (let i = 0; i < positions.count; i += 1) {
       const x = positions.getX(i)
@@ -1045,7 +1045,7 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
 
       {/* Wide transparent click volume: movement remains free in all 360 degrees. */}
       <mesh onClick={onPathClick} renderOrder={-5}>
-        <sphereGeometry args={[228, quality === 'mobile' ? 28 : 40, quality === 'mobile' ? 18 : 26]} />
+        <sphereGeometry args={[338, quality === 'mobile' ? 28 : 40, quality === 'mobile' ? 18 : 26]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.BackSide} />
       </mesh>
       <UnderwaterDome quality={quality} />

@@ -418,3 +418,54 @@ canvas {
   .mpd-spotify-player { bottom: max(88px, calc(env(safe-area-inset-bottom) + 80px)) !important; width: min(252px, calc(100vw - 18px)) !important; padding: 7px !important; }
   .mpd-spotify-chip { bottom: max(88px, calc(env(safe-area-inset-bottom) + 80px)) !important; max-width: calc(100vw - 24px) !important; min-height: 32px !important; padding: 6px 10px !important; }
 }
+
+
+/* MPD V27: stable Spotify dock below top controls, away from joystick, dive buttons and MPD player. */
+.mpd-spotify-player {
+  left: auto !important;
+  right: 12px !important;
+  top: max(108px, calc(env(safe-area-inset-top) + 98px)) !important;
+  bottom: auto !important;
+  transform: none !important;
+  width: min(264px, calc(100vw - 24px)) !important;
+  max-height: 190px !important;
+  padding: 7px !important;
+  z-index: 48 !important;
+}
+.mpd-spotify-player > div:first-of-type { margin-bottom: 5px !important; }
+.mpd-spotify-player > div:last-of-type { height: 116px !important; width: 248px !important; max-width: 100% !important; }
+.mpd-spotify-player iframe { height: 116px !important; max-width: 100% !important; }
+.mpd-spotify-chip {
+  left: auto !important;
+  right: 12px !important;
+  top: max(108px, calc(env(safe-area-inset-top) + 98px)) !important;
+  bottom: auto !important;
+  transform: none !important;
+  max-width: min(248px, calc(100vw - 24px)) !important;
+  min-height: 30px !important;
+  padding: 5px 9px !important;
+  z-index: 49 !important;
+}
+@media (pointer: coarse), (max-width: 820px) {
+  .mpd-spotify-player {
+    top: max(132px, calc(env(safe-area-inset-top) + 124px)) !important;
+    right: 7px !important;
+    width: min(220px, calc(100vw - 14px)) !important;
+    max-height: 164px !important;
+    padding: 6px !important;
+    border-radius: 12px !important;
+  }
+  .mpd-spotify-player > div:first-of-type { margin-bottom: 3px !important; gap: 4px !important; }
+  .mpd-spotify-player > div:first-of-type button { width: 23px !important; height: 23px !important; }
+  .mpd-spotify-player > div:last-of-type { height: 98px !important; width: 208px !important; }
+  .mpd-spotify-player iframe { height: 98px !important; }
+  .mpd-spotify-chip {
+    top: max(132px, calc(env(safe-area-inset-top) + 124px)) !important;
+    right: 7px !important;
+    max-width: min(210px, calc(100vw - 14px)) !important;
+    min-height: 27px !important;
+    padding: 4px 7px !important;
+    gap: 5px !important;
+  }
+  .mpd-spotify-chip > span:first-child { width: 19px !important; height: 19px !important; }
+}

@@ -309,28 +309,46 @@ export function StudioScene({
       // touch therefore use the same deterministic 3-axis destination.
       const current = localPositionRef.current
       const pointerY = THREE.MathUtils.clamp(e.pointer.y, -1, 1)
-      // Use both the actual 3D pick ray and screen position. A tap in the upper
-      // half creates an upward destination relative to the diver; a lower tap
-      // creates a deeper destination. Unlike a fixed Y preset, repeated taps can
-      // move the diver through several depth levels in one continuous swim.
-      const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.5, 0.5)
-      // Screen-space intent is stable on both mouse and touch: upper taps ascend,
-      // lower taps dive, while a tap near the center primarily swims forward.
-      const verticalDelta = THREE.MathUtils.clamp(pointerY * 6.4 + rayVertical * 0.85, -7.2, 7.2)
+      // The tap chooses a depth layer, then its actual camera ray is intersected
+      // with that layer. This sends the diver to the tapped screen location instead
+      // of the old short fixed forward step. Works for mouse and touch alike.
+      const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.72, 0.72)
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 14.0 + rayVertical * 2.2, -19.0, 19.0)
       const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
-
-      const horizontalDirection = e.ray.direction.clone()
-      horizontalDirection.y = 0
-      if (horizontalDirection.lengthSq() < 0.0025) {
-        horizontalDirection.set(0, 0, -1)
+      const depthPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -swimY)
+      const tappedPoint = new THREE.Vector3()
+      const planeHit = e.ray.intersectPlane(depthPlane, tappedPoint)
+      let x: number
+      let z: number
+      if (planeHit && Number.isFinite(tappedPoint.x) && Number.isFinite(tappedPoint.z)) {
+        let dx = tappedPoint.x - current.x
+        let dz = tappedPoint.z - current.z
+        const horizontalDistance = Math.hypot(dx, dz)
+        if (horizontalDistance < 3.5) {
+          const forward = e.ray.direction.clone()
+          forward.y = 0
+          if (forward.lengthSq() < 0.0025) forward.set(0, 0, -1)
+          forward.normalize()
+          dx = forward.x * 8.5
+          dz = forward.z * 8.5
+        } else if (horizontalDistance > 108) {
+          const scale = 108 / horizontalDistance
+          dx *= scale
+          dz *= scale
+        }
+        x = current.x + dx
+        z = current.z + dz
       } else {
-        horizontalDirection.normalize()
+        const horizontalDirection = e.ray.direction.clone()
+        horizontalDirection.y = 0
+        if (horizontalDirection.lengthSq() < 0.0025) horizontalDirection.set(0, 0, -1)
+        else horizontalDirection.normalize()
+        const distance = 34 + (1 - Math.abs(pointerY)) * 24
+        x = current.x + horizontalDirection.x * distance
+        z = current.z + horizontalDirection.z * distance
       }
-      // Upper/lower taps prioritise vertical movement; middle taps swim farther
-      // along the camera-facing horizontal direction.
-      const horizontalDistance = 6.0 + (1 - Math.abs(pointerY)) * 12.0
-      const x = THREE.MathUtils.clamp(current.x + horizontalDirection.x * horizontalDistance, -146, 78)
-      const z = THREE.MathUtils.clamp(current.z + horizontalDirection.z * horizontalDistance, -98, 126)
+      x = THREE.MathUtils.clamp(x, -186, 146)
+      z = THREE.MathUtils.clamp(z, -160, 184)
       setTravel({ position: new THREE.Vector3(x, swimY, z), sit: false })
       return
     }
@@ -492,7 +510,7 @@ export function StudioScene({
           resetKey={resetKey}
         />
         {players
-          .filter((player) => !underwater || (player.position[0] >= -146 && player.position[0] <= 78 && player.position[2] >= -98 && player.position[2] <= 126))
+          .filter((player) => !underwater || (player.position[0] >= -186 && player.position[0] <= 146 && player.position[2] >= -160 && player.position[2] <= 184))
           .map((player) => <RemoteAvatar key={player.userId} player={player} onSelect={onSelectPlayer} />)}
         <TargetMarker target={target} underwater={underwater} />
 
@@ -504,8 +522,8 @@ export function StudioScene({
           rotateSpeed={graphicsTier === 'mobile' ? 0.64 : 0.74}
           enableZoom
           zoomSpeed={1.12}
-          minDistance={underwater ? (graphicsTier === 'mobile' ? 4.4 : 4.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 44 : graphicsTier === 'balanced' ? 42 : 46) : graphicsTier === 'mobile' ? 52 : 56}
+          minDistance={underwater ? (graphicsTier === 'mobile' ? 5.2 : 4.8) : graphicsTier === 'mobile' ? 4.0 : 3.8}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 76 : graphicsTier === 'balanced' ? 86 : 96) : graphicsTier === 'mobile' ? 52 : 56}
           // Outdoors: keep the camera close to the horizon so looking upward
           // cannot pass through the ground. Underwater remains a free 3D orbit.
           minPolarAngle={underwater ? 0.16 : 1.28}

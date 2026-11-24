@@ -1,0 +1,6 @@
+MPD MUSIC STUDIO WORLD V27 PATCH MANIFEST
+- Base: current MPD Music Studio source bundle with V26 changes merged
+- Target: components, lib, app styles and two optimized forest textures
+- Preserve: .env.local, Git credentials, Supabase data, Vercel project settings
+- Apply: backup -> payload SHA256 verification -> patch -> TypeScript -> production build -> GitHub main -> Vercel Production -> alias mpd-music.vercel.app
+- Recovery: restore patch files only when TypeScript/build fails; preserve built sources on GitHub/Vercel failures

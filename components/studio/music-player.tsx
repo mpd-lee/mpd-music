@@ -9,6 +9,7 @@ import { loadYouTubeIframeApi, type YouTubePlayer } from '@/lib/youtube-iframe-a
 const VIDEO_ID = '8JUMTVvHd-4'
 
 type SpotifyTrackChoice = { id: string; title: string; url: string }
+type YouTubeTrackRequest = { videoId: string; title: string; startSeconds?: number }
 type SpotifyPlaybackUpdate = { playingURI?: string; isPaused: boolean; isBuffering: boolean; duration: number; position: number }
 type SpotifyEmbedController = {
   loadEntity?: (uriOrUrl: string) => void
@@ -62,6 +63,9 @@ type MusicPlayerProps = { startSignal: number; suspended?: boolean; visible?: bo
 export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(function MusicPlayer({ startSignal, suspended = false, visible = true, onStatusChange }, forwardedRef) {
   const containerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<YouTubePlayer | null>(null)
+  const youtubeReadyRef = useRef(false)
+  const activeYouTubeTrackRef = useRef<YouTubeTrackRequest | null>(null)
+  const pendingYouTubeTrackRef = useRef<YouTubeTrackRequest | null>(null)
   const spotifyHostRef = useRef<HTMLDivElement>(null)
   const spotifyControllerRef = useRef<SpotifyEmbedController | null>(null)
   const spotifyReadyRef = useRef(false)
@@ -119,8 +123,8 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
       if (cancelled || !spotifyHostRef.current || spotifyControllerRef.current) return
       api.createController(spotifyHostRef.current, {
         uri: `spotify:track:${SPOTIFY_TRACK_CHOICES.bass.id}`,
-        width: 300,
-        height: 152,
+        width: 248,
+        height: 116,
       }, (controller) => {
         if (cancelled) { try { controller.destroy() } catch { /* already removed */ }; return }
         spotifyControllerRef.current = controller
@@ -217,6 +221,43 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
     }
   }, [])
 
+  // Acoustic guitar and piano bench share the visible MPD YouTube player.
+  // The event is dispatched directly from a user interaction, so ready players can start immediately.
+  useEffect(() => {
+    const playRequestedTrack = (event: Event) => {
+      const detail = (event as CustomEvent<YouTubeTrackRequest>).detail
+      if (!detail || !/^[A-Za-z0-9_-]{11}$/.test(detail.videoId)) return
+      const track: YouTubeTrackRequest = {
+        videoId: detail.videoId,
+        title: detail.title || 'MPD Music 연주곡',
+        startSeconds: Math.max(0, Number(detail.startSeconds) || 0),
+      }
+      activeYouTubeTrackRef.current = track
+      pendingYouTubeTrackRef.current = track
+      setTitle(track.title)
+      setMinimized(false)
+      setLoadError('')
+      setSpotifySelection(null)
+      setSpotifyMinimized(false)
+      try { spotifyControllerRef.current?.pause() } catch { /* Spotify iframe may be switching tracks */ }
+      currentSpotifyTrackRef.current = null
+      pendingSpotifyTrackRef.current = null
+      const player = playerRef.current
+      if (player && youtubeReadyRef.current && player.loadVideoById) {
+        pendingYouTubeTrackRef.current = null
+        player.loadVideoById(track.videoId, track.startSeconds)
+        player.unMute()
+        player.setVolume(volumeRef.current)
+        setMuted(false)
+        setNeedsSoundTap(false)
+        playingRef.current = true
+        setPlaying(true)
+      }
+    }
+    window.addEventListener('mpd-play-youtube-track', playRequestedTrack)
+    return () => window.removeEventListener('mpd-play-youtube-track', playRequestedTrack)
+  }, [])
+
   // 사용자 입장 버튼을 누르기 전에는 배경 음악을 자동으로 불러오거나 재생하지 않습니다.
   useEffect(() => {
     let cancelled = false
@@ -225,6 +266,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
       if (cancelled || !containerRef.current || playerRef.current) return
       const host = document.createElement('div')
       containerRef.current.appendChild(host)
+      youtubeReadyRef.current = false
       playerRef.current = new api.Player(host, {
         videoId: VIDEO_ID,
         width: '100%',
@@ -249,6 +291,20 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
             setReady(true)
             onStatusChangeRef.current?.('ready')
             event.target.setVolume(volumeRef.current)
+            youtubeReadyRef.current = true
+            const pendingTrack = pendingYouTubeTrackRef.current
+            if (pendingTrack && event.target.loadVideoById) {
+              pendingYouTubeTrackRef.current = null
+              activeYouTubeTrackRef.current = pendingTrack
+              setTitle(pendingTrack.title)
+              event.target.loadVideoById(pendingTrack.videoId, pendingTrack.startSeconds ?? 0)
+              // A late iframe can miss the original gesture. Keep the requested track queued visibly;
+              // the player controls remain available if the browser requires a second tap.
+              event.target.setVolume(volumeRef.current)
+              setMuted(true)
+              setNeedsSoundTap(true)
+              return
+            }
             const data = event.target.getVideoData?.()
             if (data?.title) setTitle(data.title)
             if (suspendedRef.current) resumeAfterConsoleRef.current = true
@@ -279,7 +335,9 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
               const data = event.target.getVideoData?.()
               if (data?.title) setTitle(data.title)
             } else if (event.data === state.ENDED) {
-              event.target.seekTo(0, true)
+              // Repeat the selected acoustic/piano track from its requested timestamp;
+              // the normal MPD background track still repeats from zero.
+              event.target.seekTo(activeYouTubeTrackRef.current?.startSeconds ?? 0, true)
               event.target.playVideo()
               playingRef.current = true
               setPlaying(true)
@@ -315,6 +373,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
     return () => {
       cancelled = true
       const currentPlayer = playerRef.current
+      youtubeReadyRef.current = false
       playerRef.current = null
       if (currentPlayer) {
         try { currentPlayer.destroy() } catch { /* player may already be disposed */ }
@@ -420,7 +479,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
         </div>
         {muted && ready && !suspended && (
           <button type="button" onClick={() => { playerRef.current?.unMute(); playerRef.current?.setVolume(volumeRef.current); playerRef.current?.playVideo(); setMuted(false); setNeedsSoundTap(false) }} className="mt-2 w-full rounded-lg bg-amber-300 px-3 py-2 text-xs font-bold text-neutral-950 hover:bg-amber-200">
-            🔊 MPD Music 배경음악 소리 켜기
+            🔊 {activeYouTubeTrackRef.current ? '선택한 연주곡 소리 켜기' : 'MPD Music 배경음악 소리 켜기'}
           </button>
         )}
         <div className="mt-3 flex items-center gap-2">
@@ -473,7 +532,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
           <button type="button" onClick={() => setSpotifyMinimized(true)} className="flex size-7 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10" aria-label="Spotify 플레이어 접기" title="Spotify 창 접기"><ChevronDown className="size-4" /></button>
           <button type="button" onClick={closeSpotifyPlayer} className="flex size-7 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10" aria-label="Spotify 플레이어 닫기"><X className="size-4" /></button>
         </div>
-        <div ref={spotifyHostRef} className="h-[152px] w-[300px] max-w-full overflow-hidden rounded-xl bg-black [&_iframe]:max-w-full" />
+        <div ref={spotifyHostRef} className="h-[116px] w-[248px] max-w-full overflow-hidden rounded-xl bg-black [&_iframe]:max-w-full" />
         {spotifyError && <p role="status" className="mt-1 text-[10px] text-rose-200">{spotifyError}</p>}
         {spotifySelection && <p className="mt-1 text-[9px] leading-relaxed text-neutral-500">브라우저에서 자동 재생이 차단되면 Spotify 플레이어 안의 재생 버튼을 눌러주세요.</p>}
       </section>

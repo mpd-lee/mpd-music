@@ -5,6 +5,7 @@ export type YouTubePlayer = {
   unMute: () => void
   setVolume: (volume: number) => void
   seekTo: (seconds: number, allowSeekAhead?: boolean) => void
+  loadVideoById?: (videoId: string, startSeconds?: number) => void
   getPlayerState: () => number
   getVideoData?: () => { title?: string }
   destroy: () => void
@@ -77,10 +78,16 @@ export function loadYouTubeIframeApi(): Promise<YouTubeIframeApi> {
       document.head.appendChild(script)
     }
 
-    script.onerror = () => finish(new Error('YouTube 플레이어 API를 불러오지 못했습니다.'))
+    script.onerror = () => {
+      script?.remove()
+      finish(new Error('YouTube 플레이어 API를 불러오지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.'))
+    }
     timeoutId = window.setTimeout(() => {
       if (window.YT?.Player) finish()
-      else finish(new Error('YouTube 플레이어 응답 시간이 초과되었습니다.'))
+      else {
+        script?.remove()
+        finish(new Error('YouTube 플레이어 응답 시간이 초과되었습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.'))
+      }
     }, 15000)
 
     if (window.YT?.Player) finish()
