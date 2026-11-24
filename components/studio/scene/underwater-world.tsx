@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 import type { GraphicsTier } from '@/lib/graphics-quality'
-import { UNDERWATER_FLOOR_Y } from '@/lib/world-depth'
+import { UNDERWATER_FLOOR_Y, UNDERWATER_MIN_Y } from '@/lib/world-depth'
 
 const noRaycast = () => null
 
@@ -343,7 +343,7 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
   const texture = useMemo(() => createCleanUnderwaterTexture(source, quality), [source, quality])
   // A larger 360 shell gives the diver room to move without the photo feeling
   // like a close flat wall; a wider camera FOV complements this on phones.
-  const geometry = useMemo(() => new THREE.SphereGeometry(620, quality === 'mobile' ? 56 : quality === 'balanced' ? 80 : 104, quality === 'mobile' ? 34 : quality === 'balanced' ? 50 : 64), [quality])
+  const geometry = useMemo(() => new THREE.SphereGeometry(2000, quality === 'mobile' ? 64 : quality === 'balanced' ? 88 : 112, quality === 'mobile' ? 40 : quality === 'balanced' ? 58 : 76), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
@@ -905,10 +905,10 @@ function DiverMarineEscort({ playerPositionRef, quality }: {
     const localZ = player.z - 14
     const target = new THREE.Vector3(
       localX + Math.sin(time * 0.16) * 2.4,
-      THREE.MathUtils.clamp(localY - 2.2 + Math.sin(time * 0.24) * 0.8, -54, -0.6),
+      THREE.MathUtils.clamp(localY - 2.2 + Math.sin(time * 0.24) * 0.8, UNDERWATER_MIN_Y + 35.0, -0.6),
       localZ - 8.8 + Math.cos(time * 0.16) * 3.0,
     )
-    node.position.lerp(target, 1 - Math.exp(-Math.min(delta, 0.05) * 1.35))
+    node.position.lerp(target, 1 - Math.exp(-Math.min(delta, 0.05) * 2.1))
     const dx = target.x - node.position.x
     const dz = target.z - node.position.z
     if (Math.hypot(dx, dz) > 0.015) node.rotation.y = Math.atan2(dx, dz)
@@ -925,12 +925,12 @@ function DiverMarineEscort({ playerPositionRef, quality }: {
     : quality === 'balanced'
       ? [[4.4, -1.5, 3.0], [-5.8, -7.8, -10.5], [9.0, -11.5, -18.0], [-11.5, -15.5, 5.5]]
       : [[4.4, -1.5, 3.0], [-5.8, -7.8, -10.5], [9.0, -11.5, -18.0], [-11.5, -15.5, 5.5], [14.0, -18.0, -28.0]]
-  const escortFish = mobile ? 34 : quality === 'balanced' ? 52 : 72
-  const turtleScale = mobile ? 1.10 : quality === 'balanced' ? 1.25 : 1.38
-  const rayScale = mobile ? 1.34 : quality === 'balanced' ? 1.50 : 1.66
-  const sharkScale = mobile ? 0.74 : quality === 'balanced' ? 0.90 : 1.02
-  const babyWhaleScale = mobile ? 0.76 : quality === 'balanced' ? 0.90 : 1.02
-  const adultWhaleScale = mobile ? 1.34 : quality === 'balanced' ? 1.56 : 1.76
+  const escortFish = mobile ? 42 : quality === 'balanced' ? 64 : 88
+  const turtleScale = mobile ? 1.22 : quality === 'balanced' ? 1.38 : 1.48
+  const rayScale = mobile ? 1.48 : quality === 'balanced' ? 1.65 : 1.82
+  const sharkScale = mobile ? 0.84 : quality === 'balanced' ? 0.98 : 1.10
+  const babyWhaleScale = mobile ? 0.88 : quality === 'balanced' ? 1.02 : 1.14
+  const adultWhaleScale = mobile ? 1.48 : quality === 'balanced' ? 1.68 : 1.88
 
   return (
     <group ref={group} raycast={noRaycast} userData={{ mpdNoCollision: true }}>
@@ -986,12 +986,12 @@ function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: 
   }, [texture, quality])
   const geometry = useMemo(() => {
     const segments = quality === 'mobile' ? 24 : quality === 'balanced' ? 38 : 56
-    const plane = new THREE.PlaneGeometry(860, 860, segments * 2, segments * 2)
+    const plane = new THREE.PlaneGeometry(1720, 1720, segments * 2, segments * 2)
     const positions = plane.attributes.position as THREE.BufferAttribute
     for (let i = 0; i < positions.count; i += 1) {
       const x = positions.getX(i)
       const z = positions.getY(i)
-      const radial = Math.min(1, Math.hypot(x, z) / 420)
+      const radial = Math.min(1, Math.hypot(x, z) / 860)
       const lowRoll = Math.sin(x * 0.045) * 0.14 + Math.cos(z * 0.052) * 0.12 + Math.sin((x + z) * 0.031) * 0.10
       const edgeRise = radial * radial * 1.45
       positions.setZ(i, lowRoll + edgeRise)
@@ -1047,16 +1047,16 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
 
       {/* Wide transparent click volume: movement remains free in all 360 degrees. */}
       <mesh onClick={onPathClick} renderOrder={-5}>
-        <sphereGeometry args={[585, quality === 'mobile' ? 32 : 48, quality === 'mobile' ? 20 : 30]} />
+        <sphereGeometry args={[1240, quality === 'mobile' ? 36 : 52, quality === 'mobile' ? 24 : 34]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.BackSide} />
       </mesh>
       <UnderwaterDome quality={quality} />
 
       {/* Three broad schools create roughly five times the visible marine life.
           Instancing keeps the additional fish inexpensive on mobile and desktop. */}
-      <InstancedFishSchool count={schoolCounts[0]} school={3} baseDepth={-7.5} spreadX={58} spreadZ={52} />
-      <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-32.5} spreadX={88} spreadZ={78} />
-      <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-70.0} spreadX={126} spreadZ={116} />
+      <InstancedFishSchool count={schoolCounts[0]} school={3} baseDepth={-18.0} spreadX={132} spreadZ={118} />
+      <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-118.0} spreadX={316} spreadZ={286} />
+      <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-215.0} spreadX={500} spreadZ={460} />
       {/* Distant silhouettes add scale and life beyond the foreground escort. */}
       <SeaTurtle position={[54, -22.5, -108]} scale={quality === 'mobile' ? 0.9 : 1.16} depthY={-22.5} />
       <SeaTurtle position={[-78, -54, 96]} scale={quality === 'mobile' ? 0.72 : 0.94} depthY={-54} />

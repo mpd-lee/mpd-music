@@ -105,12 +105,13 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
     // Keep the avatar in a natural over-the-shoulder third-person frame.
     // The camera starts behind the avatar, not above its head, on land and underwater.
-    const distance = underwaterMode ? (coarse ? 17.2 : 14.8) : (coarse ? 9.8 : 8.4)
-    const targetHeight = underwaterMode ? 1.08 : 1.18
-    const cameraHeight = underwaterMode ? (coarse ? 2.72 : 2.48) : 2.82
+    const distance = underwaterMode ? (coarse ? 28.5 : 23.2) : (coarse ? 9.8 : 8.4)
+    const targetHeight = underwaterMode ? 1.12 : 1.18
+    const cameraHeight = underwaterMode ? (coarse ? 3.45 : 3.12) : 2.82
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
-      perspective.fov = underwaterMode ? (coarse ? 74 : 68) : (coarse ? 52 : 48)
+      // Wider underwater lens shows more of the reef around the diver on portrait phones.
+      perspective.fov = underwaterMode ? (coarse ? 92 : 84) : (coarse ? 52 : 48)
       perspective.updateProjectionMatrix()
     }
     controls.target.set(pos.x, pos.y + targetHeight, pos.z)
@@ -343,8 +344,8 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       }
     } else if (underwaterMode) {
       // Keep free-swimming movement inside the underwater exploration volume.
-      g.position.x = THREE.MathUtils.clamp(g.position.x, -186, 146)
-      g.position.z = THREE.MathUtils.clamp(g.position.z, -160, 184)
+      g.position.x = THREE.MathUtils.clamp(g.position.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
+      g.position.z = THREE.MathUtils.clamp(g.position.z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
       g.position.y = THREE.MathUtils.clamp(g.position.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
       underwaterDepthRef.current = g.position.y
     }

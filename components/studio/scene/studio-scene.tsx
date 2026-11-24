@@ -312,8 +312,8 @@ export function StudioScene({
       // The tap chooses a depth layer, then its actual camera ray is intersected
       // with that layer. This sends the diver to the tapped screen location instead
       // of the old short fixed forward step. Works for mouse and touch alike.
-      const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.72, 0.72)
-      const verticalDelta = THREE.MathUtils.clamp(pointerY * 36.0 + rayVertical * 9.0, -48.0, 48.0)
+      const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.78, 0.78)
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 92.0 + rayVertical * 30.0, -170.0, 170.0)
       const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
       const depthPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -swimY)
       const tappedPoint = new THREE.Vector3()
@@ -329,10 +329,10 @@ export function StudioScene({
           forward.y = 0
           if (forward.lengthSq() < 0.0025) forward.set(0, 0, -1)
           forward.normalize()
-          dx = forward.x * 34
-          dz = forward.z * 34
-        } else if (horizontalDistance > 260) {
-          const scale = 260 / horizontalDistance
+          dx = forward.x * 115
+          dz = forward.z * 115
+        } else if (horizontalDistance > 680) {
+          const scale = 680 / horizontalDistance
           dx *= scale
           dz *= scale
         }
@@ -343,7 +343,7 @@ export function StudioScene({
         horizontalDirection.y = 0
         if (horizontalDirection.lengthSq() < 0.0025) horizontalDirection.set(0, 0, -1)
         else horizontalDirection.normalize()
-        const distance = 76 + (1 - Math.abs(pointerY)) * 42
+        const distance = 220 + (1 - Math.abs(pointerY)) * 160
         x = current.x + horizontalDirection.x * distance
         z = current.z + horizontalDirection.z * distance
       }
@@ -522,8 +522,8 @@ export function StudioScene({
           rotateSpeed={graphicsTier === 'mobile' ? 0.64 : 0.74}
           enableZoom
           zoomSpeed={1.12}
-          minDistance={underwater ? (graphicsTier === 'mobile' ? 5.2 : 4.8) : graphicsTier === 'mobile' ? 4.0 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 142 : graphicsTier === 'balanced' ? 158 : 174) : graphicsTier === 'mobile' ? 52 : 56}
+          minDistance={underwater ? (graphicsTier === 'mobile' ? 8.0 : 7.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 420 : graphicsTier === 'balanced' ? 450 : 480) : graphicsTier === 'mobile' ? 52 : 56}
           // Outdoors: keep the camera close to the horizon so looking upward
           // cannot pass through the ground. Underwater remains a free 3D orbit.
           minPolarAngle={underwater ? 0.16 : 1.28}
@@ -536,7 +536,7 @@ export function StudioScene({
       {underwater && (
         <div className="mpd-underwater-hud">
           <div className="mpd-underwater-title"><span className="mpd-underwater-live-dot" /> SCUBA EXPLORATION</div>
-          <div className="mpd-underwater-subtitle">최대 수심 약 75m · 360° 산호초 · 자연 암굴 · 자유 잠수</div>
+          <div className="mpd-underwater-subtitle">최대 수심 약 300m · 360° 산호초 · 자연 암굴 · 자유 잠수</div>
           <button type="button" onClick={riseToSurface} className="mpd-surface-button">↑ 수면으로 올라와 스튜디오로 돌아가기</button>
         </div>
       )}

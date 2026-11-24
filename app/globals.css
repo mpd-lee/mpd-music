@@ -531,3 +531,256 @@ canvas {
   .mpd-spotify-help { display: none !important; }
   .mpd-spotify-chip { top: calc(max(43px, env(safe-area-inset-top) + 36px) + 38px) !important; right: 7px !important; max-width: min(190px, calc(100vw - 14px)) !important; min-height: 26px !important; padding: 4px 7px !important; gap: 4px !important; }
 }
+
+
+/* MPD WORLD V29: final compact top alignment and dedicated mobile control lanes. */
+.mpd-top-nav { top: max(4.35rem, calc(env(safe-area-inset-top) + 4.25rem)) !important; right: 12px !important; gap: 1px !important; padding: 3px !important; }
+.mpd-top-nav-button { width: 50px !important; min-width: 50px !important; padding: 3px 2px !important; gap: 3px !important; font-size: 7px !important; }
+.mpd-top-nav-button svg { width: 13px !important; height: 13px !important; }
+.mpd-global-chat-chip { top: max(4.35rem, calc(env(safe-area-inset-top) + 4.25rem)) !important; left: 12px !important; min-height: 27px !important; padding: 3px 7px !important; gap: 4px !important; }
+.mpd-global-chat-chip > span:first-child { width: 19px !important; height: 19px !important; }
+.mpd-global-chat-chip > span:last-child > span:first-child { font-size: 9px !important; }
+.mpd-global-chat-chip > span:last-child > span:last-child { font-size: 7px !important; }
+.mpd-guestbook-panel { top: 126px !important; right: 12px !important; width: min(304px, calc(100vw - 24px)) !important; max-height: calc(100dvh - 144px) !important; border-radius: 13px !important; }
+.mpd-guestbook-panel > header { padding: 6px 10px !important; }
+.mpd-guestbook-panel > header h2 { font-size: 11px !important; }
+.mpd-guestbook-panel > header p { font-size: 8px !important; }
+.mpd-guestbook-panel > form { gap: 5px !important; padding: 7px 9px !important; }
+.mpd-guestbook-panel > form input, .mpd-guestbook-panel > form textarea { padding: 5px 7px !important; font-size: 10px !important; }
+.mpd-guestbook-panel > form button { min-height: 27px !important; padding: 4px 8px !important; font-size: 9px !important; }
+.mpd-music-player { width: min(220px, calc(100vw - 24px)) !important; padding: 7px !important; }
+.mpd-dive-axis { right: 7px !important; bottom: 116px !important; gap: 4px !important; padding: 5px 6px !important; }
+.mpd-dive-axis button { min-height: 30px !important; min-width: 76px !important; padding: 4px 7px !important; font-size: 8px !important; }
+@media (pointer: coarse), (max-width: 820px) {
+  .mpd-top-nav { top: max(43px, calc(env(safe-area-inset-top) + 36px)) !important; right: 7px !important; gap: 1px !important; padding: 3px !important; }
+  .mpd-top-nav-button { width: 43px !important; min-width: 43px !important; padding: 3px 1px !important; font-size: 6.5px !important; }
+  .mpd-top-nav-button svg { width: 11px !important; height: 11px !important; }
+  .mpd-global-chat-chip { top: max(43px, calc(env(safe-area-inset-top) + 36px)) !important; left: 7px !important; min-height: 24px !important; padding: 3px 5px !important; gap: 3px !important; }
+  .mpd-global-chat-chip > span:first-child { width: 16px !important; height: 16px !important; }
+  .mpd-global-chat-chip > span:last-child > span:first-child { font-size: 7.5px !important; }
+  .mpd-global-chat-chip > span:last-child > span:last-child { font-size: 6.5px !important; }
+  .mpd-guestbook-panel { top: max(91px, calc(env(safe-area-inset-top) + 84px)) !important; right: 7px !important; width: min(258px, calc(100vw - 14px)) !important; max-height: calc(100dvh - 132px) !important; border-radius: 11px !important; }
+  .mpd-guestbook-panel > header { padding: 4px 7px !important; }
+  .mpd-guestbook-panel > header h2 { font-size: 9px !important; }
+  .mpd-guestbook-panel > header p { font-size: 7px !important; }
+  .mpd-guestbook-panel > header button { width: 23px !important; height: 23px !important; }
+  .mpd-guestbook-panel > form { gap: 4px !important; padding: 5px 7px !important; }
+  .mpd-guestbook-panel > form input, .mpd-guestbook-panel > form textarea { padding: 4px 6px !important; font-size: 9px !important; }
+  .mpd-guestbook-panel > form textarea { min-height: 44px !important; }
+  .mpd-guestbook-panel > form button { min-height: 24px !important; padding: 3px 6px !important; font-size: 8px !important; }
+  .mpd-music-player { right: 7px !important; bottom: max(6px, env(safe-area-inset-bottom)) !important; width: min(166px, calc(100vw - 14px)) !important; padding: 4px !important; border-radius: 9px !important; }
+  .mpd-music-player > div:first-child { gap: 4px !important; }
+  .mpd-music-player > div:first-child > div:first-child { width: 43px !important; height: 25px !important; }
+  .mpd-music-player > div:first-child p:first-child { font-size: 7px !important; }
+  .mpd-music-player > div:first-child p:nth-child(2) { font-size: 8px !important; }
+  .mpd-music-player > div:last-child { margin-top: 3px !important; gap: 3px !important; }
+  .mpd-music-player > div:last-child button { width: 20px !important; height: 20px !important; }
+  .mpd-music-player > div:last-child svg { width: 12px !important; height: 12px !important; }
+  .mpd-music-player > button { padding: 4px 5px !important; font-size: 8px !important; }
+  .mpd-dive-axis { right: 5px !important; bottom: max(104px, calc(env(safe-area-inset-bottom) + 98px)) !important; gap: 2px !important; padding: 3px 4px !important; border-radius: 8px !important; }
+  .mpd-dive-axis button { min-height: 23px !important; min-width: 56px !important; gap: 2px !important; padding: 2px 4px !important; border-radius: 5px !important; font-size: 6.5px !important; }
+  .mpd-dive-axis button svg { width: 10px !important; height: 10px !important; }
+  .mpd-dive-axis small { display: none !important; }
+  .mpd-spotify-player { max-width: min(186px, calc(100vw - 14px)) !important; }
+  .mpd-spotify-chip { max-width: min(180px, calc(100vw - 14px)) !important; }
+}
+
+
+/* MPD WORLD V29: one-line top alignment and safe mobile dive/player lanes. */
+.mpd-top-nav {
+  top: 64px !important; right: 12px !important;
+  gap: 1px !important; padding: 3px !important; border-radius: 12px !important;
+}
+.mpd-top-nav-button {
+  width: 50px !important; min-width: 50px !important;
+  gap: 2px !important; padding: 3px 2px !important;
+  font-size: 7px !important; line-height: 1.05 !important;
+}
+.mpd-top-nav-button svg { width: 12px !important; height: 12px !important; }
+.mpd-global-chat-chip {
+  top: 64px !important; left: 12px !important;
+  min-height: 27px !important; padding: 3px 7px !important;
+  gap: 4px !important;
+}
+.mpd-guestbook-panel {
+  top: 112px !important; right: 12px !important;
+  width: min(292px, calc(100vw - 24px)) !important;
+  max-height: calc(100dvh - 128px) !important;
+  border-radius: 12px !important;
+}
+.mpd-guestbook-panel > header { padding: 5px 8px !important; }
+.mpd-guestbook-panel > header h2 { font-size: 10px !important; }
+.mpd-guestbook-panel > header p { font-size: 7px !important; }
+.mpd-guestbook-panel > header button { width: 24px !important; height: 24px !important; }
+.mpd-guestbook-panel > form { gap: 4px !important; padding: 6px 8px !important; }
+.mpd-guestbook-panel > form input,
+.mpd-guestbook-panel > form textarea { padding: 4px 6px !important; font-size: 9px !important; }
+.mpd-guestbook-panel > form textarea { min-height: 48px !important; }
+.mpd-guestbook-panel > form button { min-height: 24px !important; padding: 3px 7px !important; font-size: 8px !important; }
+
+@media (pointer: coarse), (max-width: 820px) {
+  .mpd-top-nav {
+    top: max(44px, calc(env(safe-area-inset-top) + 36px)) !important;
+    right: 7px !important; gap: 1px !important; padding: 2px !important;
+    border-radius: 9px !important;
+  }
+  .mpd-top-nav-button {
+    width: 43px !important; min-width: 43px !important;
+    gap: 1px !important; padding: 2px 1px !important;
+    font-size: 6.5px !important; line-height: 1 !important;
+  }
+  .mpd-top-nav-button svg { width: 10px !important; height: 10px !important; }
+  .mpd-global-chat-chip {
+    top: max(44px, calc(env(safe-area-inset-top) + 36px)) !important;
+    left: 7px !important; min-height: 24px !important;
+    padding: 2px 5px !important; gap: 3px !important;
+  }
+  .mpd-global-chat-chip > span:first-child { width: 16px !important; height: 16px !important; }
+  .mpd-global-chat-chip > span:last-child > span:first-child { font-size: 7.5px !important; }
+  .mpd-global-chat-chip > span:last-child > span:last-child { font-size: 6.5px !important; }
+  .mpd-guestbook-panel {
+    top: max(82px, calc(env(safe-area-inset-top) + 76px)) !important;
+    right: 7px !important; width: min(252px, calc(100vw - 14px)) !important;
+    max-height: calc(100dvh - 104px) !important; border-radius: 10px !important;
+  }
+  .mpd-guestbook-panel > header { padding: 4px 6px !important; }
+  .mpd-guestbook-panel > header h2 { font-size: 9px !important; }
+  .mpd-guestbook-panel > header p { font-size: 6.5px !important; }
+  .mpd-guestbook-panel > form { gap: 3px !important; padding: 4px 6px !important; }
+  .mpd-guestbook-panel > form input,
+  .mpd-guestbook-panel > form textarea { padding: 3px 5px !important; font-size: 8px !important; }
+  .mpd-guestbook-panel > form textarea { min-height: 38px !important; }
+  .mpd-guestbook-panel > form button { min-height: 22px !important; padding: 2px 5px !important; font-size: 7.5px !important; }
+
+  .mpd-music-player {
+    right: 7px !important; bottom: max(6px, env(safe-area-inset-bottom)) !important;
+    width: min(154px, calc(100vw - 14px)) !important;
+    padding: 3px !important; border-radius: 8px !important;
+  }
+  .mpd-music-player > div:first-child { gap: 3px !important; }
+  .mpd-music-player > div:first-child > div:first-child { width: 36px !important; height: 22px !important; border-radius: 5px !important; }
+  .mpd-music-player > div:first-child > div:nth-child(2) { min-width: 0 !important; }
+  .mpd-music-player > div:first-child p:first-child { font-size: 6px !important; line-height: 1.05 !important; }
+  .mpd-music-player > div:first-child p:nth-child(2) { font-size: 7px !important; line-height: 1.1 !important; }
+  .mpd-music-player > div:first-child p:nth-child(3) { display: none !important; }
+  .mpd-music-player > div:first-child > div:nth-child(2) > div { display: none !important; }
+  .mpd-music-player > div:first-child button { width: 18px !important; height: 18px !important; }
+  .mpd-music-player > div:first-child button svg { width: 11px !important; height: 11px !important; }
+  .mpd-music-player > div:last-child { margin-top: 2px !important; gap: 2px !important; }
+  .mpd-music-player > div:last-child button { width: 18px !important; height: 18px !important; }
+  .mpd-music-player > div:last-child button svg { width: 10px !important; height: 10px !important; }
+  .mpd-music-player > div:last-child input { min-width: 0 !important; height: 3px !important; }
+  .mpd-music-player > button { min-height: 19px !important; padding: 2px 4px !important; font-size: 7px !important; line-height: 1.05 !important; }
+
+  /* Raised above the compact player so dive controls never cover its fold/mute row. */
+  .mpd-dive-axis {
+    right: 5px !important;
+    bottom: max(170px, calc(env(safe-area-inset-bottom) + 164px)) !important;
+    gap: 2px !important; padding: 3px !important; border-radius: 7px !important;
+  }
+  .mpd-dive-axis button {
+    min-height: 21px !important; min-width: 52px !important;
+    gap: 2px !important; padding: 2px 4px !important;
+    border-radius: 5px !important; font-size: 6px !important;
+  }
+  .mpd-dive-axis button svg { width: 9px !important; height: 9px !important; }
+  .mpd-dive-axis small { display: none !important; }
+}
+
+/* MPD WORLD V29 final refinements: match the header row and widen the dive view. */
+.mpd-top-nav {
+  top: 64px !important; right: 12px !important;
+  gap: 1px !important; padding: 2px !important; border-radius: 10px !important;
+}
+.mpd-top-nav-button {
+  width: 48px !important; min-width: 48px !important;
+  gap: 2px !important; padding: 2px 1px !important;
+  font-size: 6.8px !important; line-height: 1.05 !important;
+}
+.mpd-top-nav-button svg { width: 11px !important; height: 11px !important; }
+.mpd-global-chat-chip {
+  top: 64px !important; left: 12px !important;
+  min-height: 26px !important; padding: 2px 7px !important; gap: 4px !important;
+}
+.mpd-guestbook-panel {
+  top: 110px !important; right: 12px !important;
+  width: min(274px, calc(100vw - 24px)) !important;
+  max-height: calc(100dvh - 126px) !important; border-radius: 11px !important;
+}
+.mpd-guestbook-panel > header { padding: 4px 8px !important; }
+.mpd-guestbook-panel > header h2 { font-size: 9px !important; }
+.mpd-guestbook-panel > header p { font-size: 7px !important; }
+.mpd-guestbook-panel > header button { width: 22px !important; height: 22px !important; }
+.mpd-guestbook-panel > form { gap: 3px !important; padding: 4px 7px !important; }
+.mpd-guestbook-panel > form input,
+.mpd-guestbook-panel > form textarea { padding: 3px 5px !important; font-size: 8px !important; }
+.mpd-guestbook-panel > form textarea { min-height: 36px !important; }
+.mpd-guestbook-panel > form button { min-height: 21px !important; padding: 2px 5px !important; font-size: 7px !important; }
+
+@media (pointer: coarse), (max-width: 820px) {
+  .mpd-top-nav {
+    top: max(44px, calc(env(safe-area-inset-top) + 36px)) !important;
+    right: 7px !important; gap: 1px !important; padding: 2px !important;
+  }
+  .mpd-top-nav-button {
+    width: 42px !important; min-width: 42px !important;
+    gap: 1px !important; padding: 2px 1px !important;
+    font-size: 6.1px !important; line-height: 1 !important;
+  }
+  .mpd-top-nav-button svg { width: 10px !important; height: 10px !important; }
+  .mpd-global-chat-chip {
+    top: max(44px, calc(env(safe-area-inset-top) + 36px)) !important;
+    left: 7px !important; min-height: 23px !important; padding: 2px 5px !important; gap: 3px !important;
+  }
+  .mpd-global-chat-chip > span:first-child { width: 15px !important; height: 15px !important; }
+  .mpd-global-chat-chip > span:last-child > span:first-child { font-size: 7px !important; }
+  .mpd-global-chat-chip > span:last-child > span:last-child { font-size: 6px !important; }
+  .mpd-guestbook-panel {
+    top: max(86px, calc(env(safe-area-inset-top) + 78px)) !important;
+    right: 7px !important; width: min(232px, calc(100vw - 14px)) !important;
+    max-height: calc(100dvh - 102px) !important; border-radius: 9px !important;
+  }
+  .mpd-guestbook-panel > header { padding: 3px 6px !important; }
+  .mpd-guestbook-panel > header h2 { font-size: 8px !important; }
+  .mpd-guestbook-panel > header p { font-size: 6px !important; }
+  .mpd-guestbook-panel > header button { width: 20px !important; height: 20px !important; }
+  .mpd-guestbook-panel > form { gap: 2px !important; padding: 3px 5px !important; }
+  .mpd-guestbook-panel > form input,
+  .mpd-guestbook-panel > form textarea { padding: 3px 4px !important; font-size: 7px !important; }
+  .mpd-guestbook-panel > form textarea { min-height: 32px !important; }
+  .mpd-guestbook-panel > form button { min-height: 19px !important; padding: 2px 4px !important; font-size: 6.5px !important; }
+
+  /* Keep mute, volume and fold controls visible in a very shallow player strip. */
+  .mpd-music-player {
+    right: 6px !important; bottom: max(5px, env(safe-area-inset-bottom)) !important;
+    width: min(144px, calc(100vw - 12px)) !important;
+    padding: 3px !important; border-radius: 7px !important;
+  }
+  .mpd-music-player > div:first-child { gap: 3px !important; }
+  .mpd-music-player > div:first-child > div:first-child { width: 32px !important; height: 20px !important; border-radius: 4px !important; }
+  .mpd-music-player > div:first-child p:first-child { font-size: 5.5px !important; line-height: 1 !important; }
+  .mpd-music-player > div:first-child p:nth-child(2) { font-size: 6.5px !important; line-height: 1.05 !important; }
+  .mpd-music-player > div:first-child p:nth-child(3),
+  .mpd-music-player > div:first-child > div:nth-child(2) > div { display: none !important; }
+  .mpd-music-player > div:first-child button { width: 16px !important; height: 16px !important; }
+  .mpd-music-player > div:first-child button svg { width: 9px !important; height: 9px !important; }
+  .mpd-music-player > div:last-child { margin-top: 2px !important; gap: 2px !important; }
+  .mpd-music-player > div:last-child button { width: 16px !important; height: 16px !important; }
+  .mpd-music-player > div:last-child button svg { width: 9px !important; height: 9px !important; }
+  .mpd-music-player > div:last-child input { min-width: 0 !important; height: 3px !important; }
+  .mpd-music-player > button { min-height: 17px !important; padding: 2px 3px !important; font-size: 6px !important; line-height: 1 !important; }
+
+  /* Rise/dive buttons sit clearly above the player; joystick remains independent. */
+  .mpd-dive-axis {
+    right: 4px !important;
+    bottom: max(142px, calc(env(safe-area-inset-bottom) + 136px)) !important;
+    gap: 2px !important; padding: 2px 3px !important; border-radius: 6px !important;
+  }
+  .mpd-dive-axis button {
+    min-height: 19px !important; min-width: 48px !important;
+    gap: 1px !important; padding: 2px 3px !important;
+    border-radius: 4px !important; font-size: 6px !important;
+  }
+  .mpd-dive-axis button svg { width: 8px !important; height: 8px !important; }
+  .mpd-dive-axis small { display: none !important; }
+}

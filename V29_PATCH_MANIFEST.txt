@@ -1,0 +1,16 @@
+MPD WORLD V29 PATCH MANIFEST
+- components/studio/scene/outdoor.tsx
+- components/studio/scene/avatar.tsx
+- components/studio/scene/studio-scene.tsx
+- components/studio/scene/underwater-world.tsx
+- components/studio/studio-app.tsx
+- components/studio/chat-panel.tsx
+- components/studio/guestbook-panel.tsx
+- components/studio/music-player.tsx
+- lib/world-depth.ts
+- app/globals.css
+- public/images/mpd-forest-photo-v27.webp
+- public/images/mpd-forest-photo-v27-mobile.webp
+- public/images/mpd-sky-canopy-v29.webp
+- public/images/mpd-sky-canopy-v29-mobile.webp
+- V29_CHANGELOG_KR.txt
