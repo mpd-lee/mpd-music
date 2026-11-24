@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import * as THREE from 'three'
 import type { StudioPlayer } from '@/lib/use-multiplayer'
 import { getIslandGroundHeight, ISLAND_WALK_RADIUS } from '@/lib/island-terrain'
-import { UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y } from '@/lib/world-depth'
+import { UNDERWATER_MIN_X, UNDERWATER_MAX_X, UNDERWATER_MIN_Y, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z, UNDERWATER_SURFACE_Y } from '@/lib/world-depth'
 import { collectStudioCollisionBoxes, findCollisionAwarePath, moveWithCollision, type CollisionBox } from '@/lib/studio-collision'
 import type { WorkoutMode } from '@/lib/studio-interactions'
 
@@ -105,12 +105,12 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
     // Keep the avatar in a natural over-the-shoulder third-person frame.
     // The camera starts behind the avatar, not above its head, on land and underwater.
-    const distance = underwaterMode ? (coarse ? 12.8 : 10.8) : (coarse ? 9.8 : 8.4)
-    const targetHeight = underwaterMode ? 1.04 : 1.18
-    const cameraHeight = underwaterMode ? (coarse ? 2.18 : 2.08) : 2.82
+    const distance = underwaterMode ? (coarse ? 17.2 : 14.8) : (coarse ? 9.8 : 8.4)
+    const targetHeight = underwaterMode ? 1.08 : 1.18
+    const cameraHeight = underwaterMode ? (coarse ? 2.72 : 2.48) : 2.82
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
-      perspective.fov = underwaterMode ? (coarse ? 64 : 59) : (coarse ? 52 : 48)
+      perspective.fov = underwaterMode ? (coarse ? 74 : 68) : (coarse ? 52 : 48)
       perspective.updateProjectionMatrix()
     }
     controls.target.set(pos.x, pos.y + targetHeight, pos.z)
@@ -157,8 +157,8 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     // land navigation around furniture, walls and equipment.
     if (underwaterMode) {
       const destination = target.clone()
-      destination.x = THREE.MathUtils.clamp(destination.x, -186, 146)
-      destination.z = THREE.MathUtils.clamp(destination.z, -160, 184)
+      destination.x = THREE.MathUtils.clamp(destination.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
+      destination.z = THREE.MathUtils.clamp(destination.z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
       destination.y = THREE.MathUtils.clamp(destination.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
       route.current = [destination]
       return
@@ -260,8 +260,11 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         direction.normalize()
         const speed = underwaterMode ? UNDERWATER_INPUT_SPEED : SPEED
         const displacement = direction.clone().multiplyScalar(speed * dt)
-        if (underwaterMode) g.position.add(displacement)
-        else moveWithCollision(g.position, displacement, colliders, { radius: 0.28, height: 1.72 })
+        if (underwaterMode) {
+          g.position.add(displacement)
+          g.position.x = THREE.MathUtils.clamp(g.position.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
+          g.position.z = THREE.MathUtils.clamp(g.position.z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
+        } else moveWithCollision(g.position, displacement, colliders, { radius: 0.28, height: 1.72 })
         const desired = Math.atan2(direction.x, direction.z)
         let diff = desired - g.rotation.y
         diff = Math.atan2(Math.sin(diff), Math.cos(diff))

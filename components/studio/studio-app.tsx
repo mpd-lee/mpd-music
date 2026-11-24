@@ -72,13 +72,13 @@ export default function StudioApp() {
       )}
       {entered && <Loader containerStyles={{ background: '#0c0a09' }} barStyles={{ background: '#e8b26a' }} dataInterpolation={(p) => `스튜디오 불러오는 중 ${p.toFixed(0)}%`} />}
 
-      <header className="mpd-topbar pointer-events-none fixed inset-x-4 top-4 z-20 flex items-start justify-between gap-3">
+      <header className="pointer-events-none fixed inset-x-4 top-4 z-20 flex items-start justify-between gap-3">
         <a
           href="https://mpd-music.carrd.co"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="[MPD] MPD Music Studio 사운드 프로덕션 & 뮤직 커뮤니티 공식 페이지 열기"
-          className="mpd-brand pointer-events-auto flex items-center gap-3 rounded-full border border-white/10 bg-neutral-950/65 py-1.5 pl-1.5 pr-4 backdrop-blur-md transition hover:border-amber-200/50 hover:bg-neutral-900/80"
+          className="pointer-events-auto flex items-center gap-3 rounded-full border border-white/10 bg-neutral-950/65 py-1.5 pl-1.5 pr-4 backdrop-blur-md transition hover:border-amber-200/50 hover:bg-neutral-900/80"
         >
           <span className="flex h-9 items-center rounded-full border border-amber-200/35 bg-gradient-to-br from-amber-200 to-amber-400 px-2.5 text-[11px] font-black tracking-wide text-neutral-950">[MPD]</span>
           <div className="min-w-0 leading-tight">
@@ -112,7 +112,7 @@ export default function StudioApp() {
 
       <nav
         aria-label="스튜디오 메뉴"
-        className="mpd-top-nav fixed right-4 top-[4.35rem] z-20 flex items-center gap-0 rounded-2xl border border-white/10 bg-neutral-950/75 p-1 shadow-xl backdrop-blur-md max-sm:right-2 max-sm:top-[4.1rem]"
+        className="mpd-top-nav fixed right-4 top-[4.35rem] z-20 flex items-center gap-1 rounded-2xl border border-white/10 bg-neutral-950/75 p-1.5 shadow-xl backdrop-blur-md max-sm:right-2 max-sm:top-[4.1rem]"
       >
         {[
           { label: '방명록', icon: BookOpen, onClick: () => setGuestbookOpen((v) => !v), active: guestbookOpen },
@@ -124,9 +124,9 @@ export default function StudioApp() {
             type="button"
             onClick={onClick}
             aria-pressed={label === '방명록' ? active : undefined}
-            className={`mpd-top-nav-button flex w-[54px] flex-col items-center gap-0.5 rounded-lg px-1 py-1 text-[8px] leading-tight transition hover:bg-white/10 ${active ? 'bg-white/10 text-amber-200' : 'text-neutral-200'}`}
+            className={`mpd-top-nav-button flex w-[70px] flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[11px] transition hover:bg-white/10 ${active ? 'bg-white/10 text-amber-200' : 'text-neutral-200'}`}
           >
-            <Icon className="size-3.5" aria-hidden="true" />
+            <Icon className="size-4" aria-hidden="true" />
             {label}
           </button>
         ))}
@@ -182,7 +182,7 @@ export default function StudioApp() {
                     <li className="flex gap-3"><span className="w-[92px] shrink-0 text-amber-200">휴대폰 이동</span><span>왼쪽 아래 조이스틱 또는 이동할 바닥을 터치하세요.</span></li>
                     <li className="flex gap-3"><span className="w-[92px] shrink-0 text-amber-200">모바일 조이스틱</span><span>왼쪽 아래 원형 조이스틱은 휴대폰·터치 기기에서 계속 표시됩니다. 수중에서도 같은 조이스틱으로 좌우·앞뒤 이동하며, 오른쪽 상승·하강 버튼으로 깊이를 조절합니다.</span></li>
                     <li className="flex gap-3"><span className="w-[92px] shrink-0 text-amber-200">피아노</span><span>피아노를 클릭하고 화면 건반을 누르거나 PC 키보드 A W S E D F T G Y H U J K O L P로 연주</span></li>
-                    <li className="flex gap-3"><span className="w-[92px] shrink-0 text-amber-200">악기·스피커</span><span>베이스 기타와 새 일렉트릭 기타를 클릭하면 각각 지정 Spotify 트랙을 엽니다. 트랙이 끝나면 자동 반복 재생을 요청하며, 브라우저가 자동 재생을 제한하면 Spotify 플레이어 안의 재생 버튼을 눌러주세요. 베이스 앰프는 펑키 베이스 리프, 오른쪽 대형 스피커는 지정 YouTube 곡을 반복 재생합니다. 콘솔은 기존 레퍼런스 음악 플레이어를 엽니다.</span></li>
+                    <li className="flex gap-3"><span className="w-[92px] shrink-0 text-amber-200">악기·스피커</span><span>드럼과 악기 본체를 클릭해 소리를 확인하세요. 베이스 앰프는 펑키 베이스 리프, 오른쪽 대형 스피커는 지정 YouTube 곡을 반복 재생합니다. 콘솔은 기존 레퍼런스 음악 플레이어를 엽니다.</span></li>
                     <li className="flex gap-3"><span className="w-[92px] shrink-0 text-amber-200">피아노 음색</span><span>그랜드 피아노는 어쿠스틱 콘서트 그랜드 샘플, 붉은 로즈 키보드는 일렉트릭 피아노 샘플을 사용합니다. 첫 음은 샘플 준비 중 합성 예비음으로 들릴 수 있으며 이후 샘플 음색으로 전환됩니다.</span></li>
                     <li className="flex gap-3"><span className="w-[92px] shrink-0 text-amber-200">의자·소파</span><span>클릭하면 해당 자리까지 이동해 앉거나 눕습니다. 콘솔 의자는 콘솔 방향으로, 드럼 의자는 드럼을 바라보며 앉고 양손으로 연주하는 동작을 합니다.</span></li>
                     <li className="flex gap-3"><span className="w-[92px] shrink-0 text-amber-200">운동기구</span><span>러닝머신, 자전거, 일립티컬, 로잉, 스텝퍼, 체스트 프레스, 랫 풀다운, 레그 프레스, 샌드백, 벤치 프레스, 요가 매트를 클릭하면 이동 후 동작합니다.</span></li>

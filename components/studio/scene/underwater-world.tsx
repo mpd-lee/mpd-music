@@ -341,7 +341,9 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
   const dome = useRef<THREE.Mesh>(null)
   const source = useTexture(quality === 'mobile' ? '/images/mpd-underwater-real-panorama-mobile.webp' : '/images/mpd-underwater-real-panorama.webp')
   const texture = useMemo(() => createCleanUnderwaterTexture(source, quality), [source, quality])
-  const geometry = useMemo(() => new THREE.SphereGeometry(360, quality === 'mobile' ? 48 : quality === 'balanced' ? 72 : 88, quality === 'mobile' ? 28 : quality === 'balanced' ? 44 : 52), [quality])
+  // A larger 360 shell gives the diver room to move without the photo feeling
+  // like a close flat wall; a wider camera FOV complements this on phones.
+  const geometry = useMemo(() => new THREE.SphereGeometry(620, quality === 'mobile' ? 56 : quality === 'balanced' ? 80 : 104, quality === 'mobile' ? 34 : quality === 'balanced' ? 50 : 64), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
@@ -984,12 +986,12 @@ function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: 
   }, [texture, quality])
   const geometry = useMemo(() => {
     const segments = quality === 'mobile' ? 24 : quality === 'balanced' ? 38 : 56
-    const plane = new THREE.PlaneGeometry(620, 620, segments * 2, segments * 2)
+    const plane = new THREE.PlaneGeometry(860, 860, segments * 2, segments * 2)
     const positions = plane.attributes.position as THREE.BufferAttribute
     for (let i = 0; i < positions.count; i += 1) {
       const x = positions.getX(i)
       const z = positions.getY(i)
-      const radial = Math.min(1, Math.hypot(x, z) / 300)
+      const radial = Math.min(1, Math.hypot(x, z) / 420)
       const lowRoll = Math.sin(x * 0.045) * 0.14 + Math.cos(z * 0.052) * 0.12 + Math.sin((x + z) * 0.031) * 0.10
       const edgeRise = radial * radial * 1.45
       positions.setZ(i, lowRoll + edgeRise)
@@ -1045,22 +1047,25 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
 
       {/* Wide transparent click volume: movement remains free in all 360 degrees. */}
       <mesh onClick={onPathClick} renderOrder={-5}>
-        <sphereGeometry args={[338, quality === 'mobile' ? 28 : 40, quality === 'mobile' ? 18 : 26]} />
+        <sphereGeometry args={[585, quality === 'mobile' ? 32 : 48, quality === 'mobile' ? 20 : 30]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.BackSide} />
       </mesh>
       <UnderwaterDome quality={quality} />
 
       {/* Three broad schools create roughly five times the visible marine life.
           Instancing keeps the additional fish inexpensive on mobile and desktop. */}
-      <InstancedFishSchool count={schoolCounts[0]} school={3} baseDepth={-3.5} spreadX={32} spreadZ={28} />
-      <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-16.5} spreadX={48} spreadZ={42} />
-      <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-36.0} spreadX={58} spreadZ={54} />
+      <InstancedFishSchool count={schoolCounts[0]} school={3} baseDepth={-7.5} spreadX={58} spreadZ={52} />
+      <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-32.5} spreadX={88} spreadZ={78} />
+      <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-70.0} spreadX={126} spreadZ={116} />
       {/* Distant silhouettes add scale and life beyond the foreground escort. */}
-      <SeaTurtle position={[24, -11.5, -48]} scale={quality === 'mobile' ? 0.82 : 1.02} depthY={-11.5} />
-      <MantaRay position={[-32, -8.5, -52]} depthY={-8.5} scale={quality === 'mobile' ? 0.95 : 1.18} />
-      <LargeMarineAnimal kind="whale" position={[40, -17.5, -72]} scale={quality === 'mobile' ? 0.78 : 1.08} phase={2.1} />
-      <LargeMarineAnimal kind="whale-shark" position={[-46, -14.5, -66]} scale={quality === 'mobile' ? 0.68 : 0.88} phase={4.2} />
-      {quality !== 'mobile' && <LargeMarineAnimal kind="reef-shark" position={[52, -7.0, -38]} scale={0.94} phase={5.4} />}
+      <SeaTurtle position={[54, -22.5, -108]} scale={quality === 'mobile' ? 0.9 : 1.16} depthY={-22.5} />
+      <SeaTurtle position={[-78, -54, 96]} scale={quality === 'mobile' ? 0.72 : 0.94} depthY={-54} />
+      <MantaRay position={[-92, -34.5, -142]} depthY={-34.5} scale={quality === 'mobile' ? 1.08 : 1.38} />
+      <MantaRay position={[122, -66, 114]} depthY={-66} scale={quality === 'mobile' ? 0.82 : 1.08} />
+      <LargeMarineAnimal kind="whale" position={[112, -52.5, -188]} scale={quality === 'mobile' ? 0.88 : 1.24} phase={2.1} />
+      <LargeMarineAnimal kind="whale" position={[-168, -86, 174]} scale={quality === 'mobile' ? 0.72 : 1.02} phase={6.4} />
+      <LargeMarineAnimal kind="whale-shark" position={[-126, -46.5, -156]} scale={quality === 'mobile' ? 0.78 : 1.02} phase={4.2} />
+      <LargeMarineAnimal kind="reef-shark" position={[156, -28.0, 142]} scale={quality === 'mobile' ? 0.78 : 1.02} phase={5.4} />
       {Array.from({ length: heroFishCount }, (_, i) => (
         <TropicalFish key={`hero-fish-${i}`} index={i % 3 === 0 ? i * 7 + 21 : i * 7 + 20} quality={quality} school={i % 3 + 1} baseDepth={-2.8 - (i % 3) * 1.0} />
       ))}

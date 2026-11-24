@@ -112,7 +112,7 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   // borders are feathered so no hard vertical photo edge is visible against trees.
   // A longer eased feather hides the straight cut where the coastal photo meets
   // the forest belt. Keep the photograph's centre fully opaque and untouched.
-  const fadeWidth = 0.17
+  const fadeWidth = 0.205
   const alpha = context.createLinearGradient(0, 0, width, 0)
   alpha.addColorStop(0, 'rgba(0,0,0,0)')
   alpha.addColorStop(fadeWidth * 0.24, 'rgba(0,0,0,0.16)')
@@ -193,7 +193,9 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
     result.needsUpdate = true
     return result
   }, [source, quality])
-  const geometry = useMemo(() => new THREE.SphereGeometry(940, quality === 'mobile' ? 56 : 112, quality === 'mobile' ? 36 : 72, 0, Math.PI * 2, 0, Math.PI * 0.5), [quality])
+  // Extend the same sky photo slightly below the horizon line. The landscape cylinders
+  // remain in front, while this larger cap removes the deep-blue gap above tall trees.
+  const geometry = useMemo(() => new THREE.SphereGeometry(940, quality === 'mobile' ? 64 : 128, quality === 'mobile' ? 42 : 84, 0, Math.PI * 2, 0, Math.PI * 0.70), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
@@ -245,7 +247,7 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
   // Remove the smeared strips in the original forest photo. A cooler, more natural
   // green grade matches the coastal photograph's pine and broadleaf foliage.
   const crop = Math.round(sourceWidth * 0.014)
-  context.filter = 'saturate(0.94) contrast(1.16) brightness(1.035)'
+  context.filter = 'saturate(1.015) contrast(1.105) brightness(1.055)'
   context.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
   context.filter = 'none'
 
@@ -269,9 +271,9 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
     // Only shift yellow/olive foliage. Keep shadows, trunks, sky and already cool greens intact.
     if (hue < 30 || hue > 128 || saturation < 0.16 || max < 0.22 || g < b * 1.012) continue
 
-    const targetHue = 108 + Math.min(7, Math.max(0, (hue - 30) * 0.065))
-    const targetSaturation = Math.min(0.58, saturation * 0.72 + 0.045)
-    const value = Math.min(1, max * 1.025)
+    const targetHue = 112 + Math.min(5, Math.max(0, (hue - 30) * 0.052))
+    const targetSaturation = Math.min(0.62, saturation * 0.76 + 0.052)
+    const value = Math.min(1, max * 1.035)
     const chroma = value * targetSaturation
     const h = targetHue / 60
     const x = chroma * (1 - Math.abs((h % 2) - 1))
@@ -300,7 +302,7 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
     sampleContext.drawImage(coastImage, coastWidth - sampleW - Math.round(coastWidth * 0.085), 0, sampleW, coastHeight, 0, 0, 1, height)
     sampleContext.drawImage(coastImage, Math.round(coastWidth * 0.085), 0, sampleW, coastHeight, 1, 0, 1, height)
     const targets = sampleContext.getImageData(0, 0, 2, height).data
-    const band = Math.max(4, Math.floor(width * 0.15))
+      const band = Math.max(4, Math.floor(width * 0.205))
     const smooth = (x: number) => { const t = THREE.MathUtils.clamp(x, 0, 1); return t * t * (3 - 2 * t) }
     for (let y = 0; y < height; y += 1) {
       const leftBase = (y * width) * 4
@@ -322,7 +324,7 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
   // Restore leaf and branch detail once at texture creation. This is a restrained
   // unsharp mask, not a blur: detail remains crisp without a bright halo at the seam.
   const sharpenSource = new Uint8ClampedArray(pixels)
-  const sharpenAmount = quality === 'mobile' ? 0.48 : 0.62
+  const sharpenAmount = quality === 'mobile' ? 0.58 : 0.72
   for (let y = 1; y < height - 1; y += 1) {
     for (let x = 1; x < width - 1; x += 1) {
       const i = (y * width + x) * 4

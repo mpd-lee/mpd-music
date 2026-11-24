@@ -121,10 +121,11 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
     let cancelled = false
     void loadSpotifyIframeApi().then((api) => {
       if (cancelled || !spotifyHostRef.current || spotifyControllerRef.current) return
+      const compactEmbed = window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
       api.createController(spotifyHostRef.current, {
         uri: `spotify:track:${SPOTIFY_TRACK_CHOICES.bass.id}`,
-        width: 248,
-        height: 116,
+        width: compactEmbed ? 180 : 232,
+        height: compactEmbed ? 88 : 108,
       }, (controller) => {
         if (cancelled) { try { controller.destroy() } catch { /* already removed */ }; return }
         spotifyControllerRef.current = controller
@@ -532,9 +533,9 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
           <button type="button" onClick={() => setSpotifyMinimized(true)} className="flex size-7 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10" aria-label="Spotify 플레이어 접기" title="Spotify 창 접기"><ChevronDown className="size-4" /></button>
           <button type="button" onClick={closeSpotifyPlayer} className="flex size-7 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10" aria-label="Spotify 플레이어 닫기"><X className="size-4" /></button>
         </div>
-        <div ref={spotifyHostRef} className="h-[116px] w-[248px] max-w-full overflow-hidden rounded-xl bg-black [&_iframe]:max-w-full" />
+        <div ref={spotifyHostRef} className="mpd-spotify-embed h-[108px] w-full max-w-full overflow-hidden rounded-xl bg-black [&_iframe]:max-w-full" />
         {spotifyError && <p role="status" className="mt-1 text-[10px] text-rose-200">{spotifyError}</p>}
-        {spotifySelection && <p className="mt-1 text-[9px] leading-relaxed text-neutral-500">브라우저에서 자동 재생이 차단되면 Spotify 플레이어 안의 재생 버튼을 눌러주세요.</p>}
+        {spotifySelection && <p className="mpd-spotify-help mt-1 text-[9px] leading-relaxed text-neutral-500">브라우저에서 자동 재생이 차단되면 Spotify 플레이어 안의 재생 버튼을 눌러주세요.</p>}
       </section>
 
       {spotifyMinimized && spotifySelection && (
