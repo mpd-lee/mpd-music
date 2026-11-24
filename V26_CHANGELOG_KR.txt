@@ -1,0 +1,22 @@
+MPD MUSIC STUDIO WORLD V26
+==========================
+
+V26 updates based on the 2026-11-24 user screenshot and feedback.
+
+1. Forest / coast transition
+- Widened the coastal image feather so the coastal photo fades into the forest belt over the existing angular overlap.
+- Retuned the forest photo toward a more natural, brighter green, reduced excess saturation, and increased detail sharpening without changing the source photograph.
+- Reduced close, distant, and rear tree model scale slightly to balance the tree sizes against the coast.
+
+2. Sky coverage
+- Replaced the open-ended sky cylinder with a closed spherical sky dome using the sky crop from the same front coastal photograph. This removes the open top through which the flat background color could show when zooming out or looking upward.
+
+3. Instruments
+- The acoustic guitar now renders its acoustic fallback geometry directly instead of reusing the electric-guitar GLB.
+- Moved it beside the electric guitar while leaving the bass and electric guitar positions and Spotify selections unchanged.
+
+4. Interface
+- Reduced the upper-right guestbook / candle / camera-reset menu width.
+- Added a fold button to the Spotify instrument player and a compact restore chip. The Spotify player dock is centered above the bottom controls to reduce overlap with the music player, joystick, and dive-axis buttons.
+
+No environment variables, Supabase data, or user content are changed.

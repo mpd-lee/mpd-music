@@ -112,7 +112,7 @@ export default function StudioApp() {
 
       <nav
         aria-label="스튜디오 메뉴"
-        className="mpd-top-nav fixed right-4 top-[4.35rem] z-20 flex items-center gap-1 rounded-2xl border border-white/10 bg-neutral-950/75 p-1.5 shadow-xl backdrop-blur-md max-sm:right-2 max-sm:top-[4.1rem]"
+        className="mpd-top-nav fixed right-4 top-[4.35rem] z-20 flex items-center gap-0 rounded-2xl border border-white/10 bg-neutral-950/75 p-1 shadow-xl backdrop-blur-md max-sm:right-2 max-sm:top-[4.1rem]"
       >
         {[
           { label: '방명록', icon: BookOpen, onClick: () => setGuestbookOpen((v) => !v), active: guestbookOpen },
@@ -124,9 +124,9 @@ export default function StudioApp() {
             type="button"
             onClick={onClick}
             aria-pressed={label === '방명록' ? active : undefined}
-            className={`flex w-[70px] flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-[11px] transition hover:bg-white/10 ${active ? 'bg-white/10 text-amber-200' : 'text-neutral-200'}`}
+            className={`mpd-top-nav-button flex w-[54px] flex-col items-center gap-0.5 rounded-lg px-1 py-1 text-[8px] leading-tight transition hover:bg-white/10 ${active ? 'bg-white/10 text-amber-200' : 'text-neutral-200'}`}
           >
-            <Icon className="size-4" aria-hidden="true" />
+            <Icon className="size-3.5" aria-hidden="true" />
             {label}
           </button>
         ))}

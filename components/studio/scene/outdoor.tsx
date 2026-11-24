@@ -112,7 +112,7 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   // borders are feathered so no hard vertical photo edge is visible against trees.
   // A longer eased feather hides the straight cut where the coastal photo meets
   // the forest belt. Keep the photograph's centre fully opaque and untouched.
-  const fadeWidth = 0.068
+  const fadeWidth = 0.102
   const alpha = context.createLinearGradient(0, 0, width, 0)
   alpha.addColorStop(0, 'rgba(0,0,0,0)')
   alpha.addColorStop(fadeWidth * 0.24, 'rgba(0,0,0,0.16)')
@@ -192,13 +192,13 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
     result.needsUpdate = true
     return result
   }, [source, quality])
-  const geometry = useMemo(() => new THREE.CylinderGeometry(235, 235, 610, quality === 'mobile' ? 48 : 96, 1, true), [quality])
+  const geometry = useMemo(() => new THREE.SphereGeometry(520, quality === 'mobile' ? 48 : 96, quality === 'mobile' ? 32 : 64), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
   }, [texture, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, 398, 0]} raycast={noRaycast} renderOrder={-110} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, 0, 0]} raycast={noRaycast} renderOrder={-110} frustumCulled={false}>
       <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} depthTest={false} />
     </mesh>
   )
@@ -241,7 +241,7 @@ function createGreenForestTexture(source: THREE.Texture, quality: GraphicsTier) 
   // The original forest image has soft smeared strips at both horizontal edges.
   // Crop those strips before mapping it to the panoramic cylinder.
   const crop = Math.round(sourceWidth * 0.055)
-  context.filter = 'saturate(0.96) contrast(1.06) brightness(1.012)'
+  context.filter = 'saturate(0.91) contrast(1.085) brightness(1.055)'
   context.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
   context.filter = 'none'
 
@@ -264,11 +264,11 @@ function createGreenForestTexture(source: THREE.Texture, quality: GraphicsTier) 
     hue *= 60
     if (hue < 0) hue += 360
     const saturation = max <= 0 ? 0 : delta / max
-    if (hue < 28 || hue > 96 || saturation < 0.22 || max < 0.30 || g < b * 1.06) continue
+    if (hue < 28 || hue > 112 || saturation < 0.20 || max < 0.27 || g < b * 1.035) continue
 
-    const targetHue = 91 + Math.min(13, (hue - 28) * 0.16)
-    const targetSaturation = Math.min(0.70, saturation * 0.78 + 0.075)
-    const value = Math.min(1, max * 1.045)
+    const targetHue = 96 + Math.min(8, (hue - 28) * 0.11)
+    const targetSaturation = Math.min(0.60, saturation * 0.68 + 0.045)
+    const value = Math.min(1, max * 1.055)
     const chroma = value * targetSaturation
     const h = targetHue / 60
     const x = chroma * (1 - Math.abs((h % 2) - 1))
@@ -307,7 +307,7 @@ function createGreenForestTexture(source: THREE.Texture, quality: GraphicsTier) 
   // Gentle unsharp mask restores leaf and branch definition without introducing
   // a halo around the left/right panorama seam. This runs once when the texture loads.
   const sharpenSource = new Uint8ClampedArray(pixels)
-  const sharpenAmount = quality === 'mobile' ? 0.18 : 0.27
+  const sharpenAmount = quality === 'mobile' ? 0.25 : 0.36
   for (let y = 1; y < height - 1; y += 1) {
     for (let x = 1; x < width - 1; x += 1) {
       const i = (y * width + x) * 4
@@ -1273,7 +1273,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
     if (inNoTreeZone(x, z)) continue
     trees.push({
       position: [x, getIslandGroundHeight(x, z), z],
-      scale: (0.88 + forestRandom() * 0.84) * 0.88,
+      scale: (0.88 + forestRandom() * 0.84) * 0.84,
       seed: 520 + trees.length * 31 + Math.floor(forestRandom() * 17),
     })
   }
@@ -1293,7 +1293,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
         if (inNoTreeZone(x, staggeredZ)) { rowIndex += 1; continue }
         nearForest.push({
           position: [x, getIslandGroundHeight(x, staggeredZ), staggeredZ],
-          scale: (1.0 + ((rowIndex * 7 + rowX) % 5) * 0.12) * 0.88,
+          scale: (1.0 + ((rowIndex * 7 + rowX) % 5) * 0.12) * 0.80,
           seed: 9100 + nearForest.length * 17 + (side > 0 ? 3 : 0),
         })
         rowIndex += 1
@@ -1307,7 +1307,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
     if (inNoTreeZone(x, z)) return
     rearForest.push({
       position: [x, getIslandGroundHeight(x, z), z],
-      scale: (0.92 + ((row * 3 + index) % 4) * 0.13) * 0.88,
+      scale: (0.92 + ((row * 3 + index) % 4) * 0.13) * 0.84,
       seed: 12600 + row * 101 + index * 13,
     })
   }))

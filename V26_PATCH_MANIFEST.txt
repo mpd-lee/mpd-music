@@ -1,0 +1,8 @@
+MPD MUSIC STUDIO WORLD V26 PATCH PAYLOAD
+
+components/studio/scene/outdoor.tsx
+components/studio/scene/instruments.tsx
+components/studio/studio-app.tsx
+components/studio/music-player.tsx
+app/globals.css
+V26_CHANGELOG_KR.txt

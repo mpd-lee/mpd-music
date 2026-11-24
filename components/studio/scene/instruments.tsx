@@ -396,7 +396,7 @@ function Guitar({ position, rotationY = 0, color, kind }: { position: [number, n
   return (
     <group position={position} rotation-y={rotationY}>
       <Interactive label={label} labelOffset={[0, 1.55, 0]} onActivate={openTrack}>
-        {kind === 'electric' ? fallback : <GLBAsset url={modelUrl} scale={1} fallback={fallback} />}
+        {kind === 'electric' || kind === 'acoustic' ? fallback : <GLBAsset url={modelUrl} scale={1} fallback={fallback} />}
       </Interactive>
     </group>
   )
@@ -531,7 +531,7 @@ export function Instruments({ onSeat }: { onSeat: SeatHandler }) {
       <Guitar position={[9.0, 0, 5.2]} rotationY={-2.2} color="#172b2b" kind="bass" />
       <Guitar position={[10.4, 0, 4.4]} rotationY={-2.0} color="#b84f3d" kind="electric" />
       {/* Restore the original acoustic guitar as a third instrument; bass and electric remain in place. */}
-      <Guitar position={[10.85, 0, 7.15]} rotationY={-2.35} color="#b8793e" kind="acoustic" />
+      <Guitar position={[12.25, 0, 4.65]} rotationY={-2.0} color="#b8793e" kind="acoustic" />
       <StageKeyboard position={[-9.6, 0, -0.6]} rotationY={1.3} instrument="rhodes" />
       <StageKeyboard position={[-9.6, 0, -3.0]} rotationY={1.3} instrument="synth" />
     </group>

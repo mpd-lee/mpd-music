@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown, ExternalLink, Pause, Play, Volume2, VolumeX, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, ExternalLink, Pause, Play, Volume2, VolumeX, X } from 'lucide-react'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { loadYouTubeIframeApi, type YouTubePlayer } from '@/lib/youtube-iframe-api'
@@ -86,6 +86,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
   const [needsSoundTap, setNeedsSoundTap] = useState(false)
   const [connectionAttempt, setConnectionAttempt] = useState(0)
   const [spotifySelection, setSpotifySelection] = useState<SpotifyTrackChoice | null>(null)
+  const [spotifyMinimized, setSpotifyMinimized] = useState(false)
   const [spotifyStatus, setSpotifyStatus] = useState<'loading' | 'ready' | 'playing' | 'error'>('loading')
   const [spotifyError, setSpotifyError] = useState('')
   const onStatusChangeRef = useRef(onStatusChange)
@@ -175,6 +176,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
       spotifyLoopRestartAtRef.current = 0
       pendingSpotifyTrackRef.current = track
       setSpotifySelection(track)
+      setSpotifyMinimized(false)
       setSpotifyError('')
       setSpotifyStatus(spotifyReadyRef.current ? 'ready' : 'loading')
 
@@ -346,6 +348,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
     currentSpotifyTrackRef.current = null
     pendingSpotifyTrackRef.current = null
     setSpotifySelection(null)
+    setSpotifyMinimized(false)
     if (resumeYouTubeAfterSpotifyRef.current && !suspendedRef.current) {
       resumeYouTubeAfterSpotifyRef.current = false
       playerRef.current?.playVideo()
@@ -453,11 +456,11 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
 
       <section
         aria-label="Spotify 기타 연주곡 플레이어"
-        aria-hidden={!spotifySelection}
+        aria-hidden={!spotifySelection || spotifyMinimized}
         className={cn(
           'mpd-spotify-player fixed bottom-4 right-4 z-50 w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-emerald-200/20 bg-neutral-950/95 p-2.5 text-white shadow-2xl backdrop-blur-xl transition-all duration-200',
-          !spotifySelection && 'pointer-events-none translate-y-3 opacity-0',
-          spotifySelection && 'opacity-100',
+          (!spotifySelection || spotifyMinimized) && 'pointer-events-none translate-y-3 opacity-0',
+          spotifySelection && !spotifyMinimized && 'opacity-100',
         )}
       >
         <div className="mb-2 flex items-center gap-2">
@@ -467,12 +470,27 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
             <p className="text-[9px] text-neutral-400">{spotifyStatus === 'playing' ? '재생 중 · 트랙 종료 시 자동 반복 재시도' : spotifyStatus === 'loading' ? 'Spotify 플레이어 연결 중…' : spotifyStatus === 'error' ? 'Spotify 연결 확인 필요' : 'Spotify 재생 준비 완료'}</p>
           </div>
           {spotifySelection && <a href={spotifySelection.url} target="_blank" rel="noopener noreferrer" className="flex size-7 shrink-0 items-center justify-center rounded-full text-emerald-200 hover:bg-white/10" title="Spotify 앱/웹에서 직접 열기" aria-label="Spotify에서 직접 열기"><ExternalLink className="size-3.5" /></a>}
+          <button type="button" onClick={() => setSpotifyMinimized(true)} className="flex size-7 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10" aria-label="Spotify 플레이어 접기" title="Spotify 창 접기"><ChevronDown className="size-4" /></button>
           <button type="button" onClick={closeSpotifyPlayer} className="flex size-7 shrink-0 items-center justify-center rounded-full text-neutral-300 hover:bg-white/10" aria-label="Spotify 플레이어 닫기"><X className="size-4" /></button>
         </div>
         <div ref={spotifyHostRef} className="h-[152px] w-[300px] max-w-full overflow-hidden rounded-xl bg-black [&_iframe]:max-w-full" />
         {spotifyError && <p role="status" className="mt-1 text-[10px] text-rose-200">{spotifyError}</p>}
         {spotifySelection && <p className="mt-1 text-[9px] leading-relaxed text-neutral-500">브라우저에서 자동 재생이 차단되면 Spotify 플레이어 안의 재생 버튼을 눌러주세요.</p>}
       </section>
+
+      {spotifyMinimized && spotifySelection && (
+        <button
+          type="button"
+          onClick={() => setSpotifyMinimized(false)}
+          className="mpd-spotify-chip fixed z-[51] flex max-w-[min(300px,calc(100vw-24px))] items-center gap-2 rounded-full border border-emerald-200/30 bg-neutral-950/95 px-3 py-2 text-left text-white shadow-xl backdrop-blur-xl transition hover:border-emerald-200/60"
+          aria-label="접힌 Spotify 플레이어 다시 열기"
+          title="Spotify 플레이어 펼치기"
+        >
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-400 text-neutral-950">♫</span>
+          <span className="min-w-0 flex-1 truncate text-[10px] font-semibold">Spotify · {spotifySelection.title}</span>
+          <ChevronUp className="size-4 shrink-0 text-emerald-200" />
+        </button>
+      )}
     </>
   )
 })
