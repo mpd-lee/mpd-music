@@ -314,7 +314,7 @@ export function StudioScene({
       // bottom means descend. A single tap must never send the diver hundreds of
       // metres away or create an unreachable route beyond the visible reef.
       const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.72, 0.72)
-      const verticalDelta = THREE.MathUtils.clamp(pointerY * 76.0 + rayVertical * 18.0, -105.0, 105.0)
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 330.0 + rayVertical * 70.0, -420.0, 420.0)
       const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.035)
       const depthPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -swimY)
       const tappedPoint = new THREE.Vector3()
@@ -323,18 +323,18 @@ export function StudioScene({
       horizontalDirection.y = 0
       if (horizontalDirection.lengthSq() < 0.0025) horizontalDirection.set(0, 0, -1)
       horizontalDirection.normalize()
-      const fallbackDistance = 84.0 + (1 - Math.abs(pointerY)) * 34.0
+      const fallbackDistance = 260.0 + (1 - Math.abs(pointerY)) * 160.0
       let dx: number
       let dz: number
       if (planeHit && Number.isFinite(tappedPoint.x) && Number.isFinite(tappedPoint.z)) {
         dx = tappedPoint.x - current.x
         dz = tappedPoint.z - current.z
         const horizontalDistance = Math.hypot(dx, dz)
-        if (horizontalDistance < 8.0) {
-          dx = horizontalDirection.x * fallbackDistance
-          dz = horizontalDirection.z * fallbackDistance
-        } else if (horizontalDistance > 220.0) {
-          const scale = 220.0 / horizontalDistance
+        if (horizontalDistance < 6.0) {
+          dx = horizontalDirection.x * Math.max(42.0, fallbackDistance * 0.48)
+          dz = horizontalDirection.z * Math.max(42.0, fallbackDistance * 0.48)
+        } else if (horizontalDistance > 1100.0) {
+          const scale = 1100.0 / horizontalDistance
           dx *= scale
           dz *= scale
         }
@@ -429,14 +429,14 @@ export function StudioScene({
         dpr={Math.min(graphics.dpr, adaptiveDpr)}
         performance={{ min: 0.45, max: 1, debounce: 180 }}
         gl={{ antialias: graphics.antialias, powerPreference: 'high-performance', precision: 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 0.98 : 1.04, stencil: false, preserveDrawingBuffer: false }}
-        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: underwater ? (graphicsTier === 'mobile' ? 106 : 100) : graphicsTier === 'mobile' ? 52 : 48, near: 0.25, far: 12000 }}
+        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: underwater ? (graphicsTier === 'mobile' ? 86 : 80) : graphicsTier === 'mobile' ? 52 : 48, near: 0.25, far: 12000 }}
         onCreated={({ scene }) => {
           scene.background = new THREE.Color(underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7')
         }}
         onPointerMissed={() => { document.body.style.cursor = 'auto' }}
       >
         <fog attach="fog" args={underwater
-          ? ['#07506a', 420, 2600]
+          ? ['#07506a', 720, 3400]
           : [isNight ? '#0b1329' : '#d8edf5', 420, 1250]}
         />
 
@@ -521,8 +521,8 @@ export function StudioScene({
           rotateSpeed={graphicsTier === 'mobile' ? 0.64 : 0.74}
           enableZoom
           zoomSpeed={1.12}
-          minDistance={underwater ? (graphicsTier === 'mobile' ? 8.0 : 7.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 1650 : graphicsTier === 'balanced' ? 1850 : 2050) : graphicsTier === 'mobile' ? 52 : 56}
+          minDistance={underwater ? (graphicsTier === 'mobile' ? 4.8 : 4.2) : graphicsTier === 'mobile' ? 4.0 : 3.8}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 2200 : graphicsTier === 'balanced' ? 2500 : 2800) : graphicsTier === 'mobile' ? 52 : 56}
           // Outdoors: keep the camera close to the horizon so looking upward
           // cannot pass through the ground. Underwater remains a free 3D orbit.
           minPolarAngle={underwater ? 0.16 : 1.28}
@@ -535,7 +535,7 @@ export function StudioScene({
       {underwater && (
         <div className="mpd-underwater-hud">
           <div className="mpd-underwater-title"><span className="mpd-underwater-live-dot" /> SCUBA EXPLORATION</div>
-          <div className="mpd-underwater-subtitle">최대 수심 약 600m · 360° 산호초 · 자연 암굴 · 넓은 자유 잠수</div>
+          <div className="mpd-underwater-subtitle">최대 수심 약 900m · 좌우 3.5km 탐험 · 탭 이동 · 조이스틱 수영 · 상승/하강</div>
           <button type="button" onClick={riseToSurface} className="mpd-surface-button">↑ 수면으로 올라와 스튜디오로 돌아가기</button>
         </div>
       )}

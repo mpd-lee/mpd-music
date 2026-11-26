@@ -112,7 +112,7 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   // borders are feathered so no hard vertical photo edge is visible against trees.
   // A longer eased feather hides the straight cut where the coastal photo meets
   // the forest belt. Keep the photograph's centre fully opaque and untouched.
-  const fadeWidth = 0.132
+  const fadeWidth = 0.165
   const alpha = context.createLinearGradient(0, 0, width, 0)
   alpha.addColorStop(0, 'rgba(0,0,0,0)')
   alpha.addColorStop(fadeWidth * 0.16, 'rgba(0,0,0,0.035)')
@@ -144,8 +144,8 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
   // Use a real equirectangular scene background instead of a distant mesh.
   // The background is infinitely distant and cannot leave a blue gap above the forest.
   const texture = useTexture(quality === 'mobile'
-    ? '/images/mpd-sky-panorama-v32-mobile.webp'
-    : '/images/mpd-sky-panorama-v32.webp')
+    ? '/images/mpd-sky-panorama-v33-mobile.webp'
+    : '/images/mpd-sky-panorama-v33.webp')
   const scene = useThree((state) => state.scene)
   useLayoutEffect(() => {
     const previousBackground = scene.background
@@ -180,7 +180,7 @@ function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   // Use the exact same radius and vertical centre as ForestPanorama. The coastal arc
   // overlaps the forest arc by about 10 degrees at each end, and the feathered coast
   // edges reveal the forest underneath without a radial step or a flat-card intersection.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 56 : 96, 1, true, Math.PI - 0.92, 1.84), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 64 : 112, 1, true, Math.PI - 1.06, 2.12), [quality])
   useEffect(() => () => {
     if (image !== source) image.dispose()
     geometry.dispose()
@@ -315,6 +315,31 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
     }
   }
 
+  // The forest texture wraps around a near-360° cylinder. Equalise a narrow
+  // strip at its rear seam so the last and first columns meet without a vertical cut.
+  const seamBand = Math.max(8, Math.floor(width * 0.045))
+  const seamPixels = frame.data
+  const seamSource = new Uint8ClampedArray(seamPixels)
+  const smoothSeam = (value: number) => { const t = THREE.MathUtils.clamp(value, 0, 1); return t * t * (3 - 2 * t) }
+  for (let y = 0; y < height; y += 1) {
+    const average = [0, 1, 2].map((channel) => {
+      let left = 0, right = 0
+      for (let k = 0; k < 4; k += 1) {
+        left += seamSource[(y * width + k) * 4 + channel]
+        right += seamSource[(y * width + width - 1 - k) * 4 + channel]
+      }
+      return (left + right) / 8
+    })
+    for (let x = 0; x < seamBand; x += 1) {
+      const t = smoothSeam(x / Math.max(1, seamBand - 1))
+      const leftIndex = (y * width + x) * 4
+      const rightIndex = (y * width + width - 1 - x) * 4
+      for (let channel = 0; channel < 3; channel += 1) {
+        seamPixels[leftIndex + channel] = Math.round(average[channel] * (1 - t) + seamSource[leftIndex + channel] * t)
+        seamPixels[rightIndex + channel] = Math.round(average[channel] * (1 - t) + seamSource[rightIndex + channel] * t)
+      }
+    }
+  }
   context.putImageData(frame, 0, 0)
   const corrected = new THREE.CanvasTexture(canvas)
   corrected.colorSpace = THREE.SRGBColorSpace

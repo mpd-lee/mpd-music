@@ -1,0 +1,18 @@
+MPD MUSIC STUDIO WORLD V33 PATCH MANIFEST
+
+Project files to patch:
+components/studio/scene/outdoor.tsx
+components/studio/scene/underwater-world.tsx
+components/studio/scene/avatar.tsx
+components/studio/scene/studio-scene.tsx
+components/studio/player-controls.tsx
+lib/world-depth.ts
+app/globals.css
+public/images/mpd-sky-panorama-v33.webp
+public/images/mpd-sky-panorama-v33-mobile.webp
+public/images/mpd-underwater-natural-v33.webp
+public/images/mpd-underwater-natural-v33-mobile.webp
+V33_CHANGELOG_KR.txt
+V33_PATCH_MANIFEST.txt
+
+The installer copies only the paths above. It never copies any .env file, .git, node_modules, .next, .vercel, local credentials, or user data.
