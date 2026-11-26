@@ -1,7 +1,7 @@
 'use client'
 
 import { Html, RoundedBox, useTexture } from '@react-three/drei'
-import { useFrame, type ThreeEvent } from '@react-three/fiber'
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { createBarkTexture } from '@/lib/textures'
@@ -141,32 +141,37 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
 }
 
 function SkyCanopy({ quality }: { quality: GraphicsTier }) {
-  // This dedicated 2:1 sky panorama is cropped from the same front-coast photograph.
-  // A nearly complete inner sphere removes the former open-cap gap above the forest.
+  // Use a real equirectangular scene background instead of a distant mesh.
+  // The background is infinitely distant and cannot leave a blue gap above the forest.
   const texture = useTexture(quality === 'mobile'
-    ? '/images/mpd-sky-canopy-v29-mobile.webp'
-    : '/images/mpd-sky-canopy-v29.webp')
-  const geometry = useMemo(
-    () => new THREE.SphereGeometry(1800, quality === 'mobile' ? 64 : 128, quality === 'mobile' ? 40 : 80, 0, Math.PI * 2, 0, Math.PI * 0.985),
-    [quality],
-  )
-  useEffect(() => {
+    ? '/images/mpd-sky-panorama-v31-mobile.webp'
+    : '/images/mpd-sky-panorama-v31.webp')
+  const scene = useThree((state) => state.scene)
+  useLayoutEffect(() => {
+    const previousBackground = scene.background
+    const previousRotation = scene.backgroundRotation.clone()
+    const previousIntensity = scene.backgroundIntensity
     texture.colorSpace = THREE.SRGBColorSpace
+    texture.mapping = THREE.EquirectangularReflectionMapping
     texture.wrapS = THREE.RepeatWrapping
     texture.wrapT = THREE.ClampToEdgeWrapping
-    texture.repeat.set(1, 1)
-    texture.anisotropy = quality === 'mobile' ? 2 : 12
     texture.minFilter = THREE.LinearMipmapLinearFilter
     texture.magFilter = THREE.LinearFilter
     texture.generateMipmaps = true
+    texture.anisotropy = quality === 'mobile' ? 2 : 12
     texture.needsUpdate = true
-    return () => geometry.dispose()
-  }, [texture, geometry, quality])
-  return (
-    <mesh geometry={geometry} position={[0, 0, 0]} rotation-y={-Math.PI / 2} raycast={noRaycast} renderOrder={-1000} frustumCulled={false}>
-      <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} depthTest={false} />
-    </mesh>
-  )
+    scene.background = texture
+    // The central sky from the front coastal photograph faces the entry view.
+    // The pano continues the same sky over the forest roof without a finite dome edge.
+    scene.backgroundRotation.set(0, -Math.PI / 2, 0)
+    scene.backgroundIntensity = 1.0
+    return () => {
+      scene.background = previousBackground
+      scene.backgroundRotation.copy(previousRotation)
+      scene.backgroundIntensity = previousIntensity
+    }
+  }, [scene, texture, quality])
+  return null
 }
 
 function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
@@ -209,7 +214,7 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
   // Remove the smeared strips in the original forest photo. A cooler, more natural
   // green grade matches the coastal photograph's pine and broadleaf foliage.
   const crop = Math.round(sourceWidth * 0.014)
-  context.filter = 'saturate(1.035) contrast(1.07) brightness(1.025)'
+  context.filter = 'saturate(0.965) contrast(1.105) brightness(1.008)'
   context.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
   context.filter = 'none'
 
@@ -233,9 +238,9 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
     // Only shift yellow/olive foliage. Keep shadows, trunks, sky and already cool greens intact.
     if (hue < 30 || hue > 128 || saturation < 0.16 || max < 0.22 || g < b * 1.012) continue
 
-    const targetHue = 113 + Math.min(3, Math.max(0, (hue - 30) * 0.030))
-    const targetSaturation = Math.min(0.66, saturation * 0.90 + 0.035)
-    const value = Math.min(1, max * 1.045)
+    const targetHue = 115 + Math.min(2, Math.max(0, (hue - 30) * 0.022))
+    const targetSaturation = Math.min(0.59, saturation * 0.80 + 0.025)
+    const value = Math.min(1, max * 1.025)
     const chroma = value * targetSaturation
     const h = targetHue / 60
     const x = chroma * (1 - Math.abs((h % 2) - 1))

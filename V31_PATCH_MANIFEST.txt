@@ -1,0 +1,11 @@
+MPD WORLD V31 PATCH MANIFEST
+- components/studio/scene/outdoor.tsx
+- components/studio/scene/underwater-world.tsx
+- components/studio/scene/studio-scene.tsx
+- components/studio/scene/avatar.tsx
+- lib/world-depth.ts
+- app/globals.css
+- public/images/mpd-sky-panorama-v31.webp
+- public/images/mpd-sky-panorama-v31-mobile.webp
+- public/images/mpd-underwater-real-panorama.webp (original restored)
+- public/images/mpd-underwater-real-panorama-mobile.webp (original restored)

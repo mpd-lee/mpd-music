@@ -313,7 +313,7 @@ export function StudioScene({
       // with that layer. This sends the diver to the tapped screen location instead
       // of the old short fixed forward step. Works for mouse and touch alike.
       const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.78, 0.78)
-      const verticalDelta = THREE.MathUtils.clamp(pointerY * 92.0 + rayVertical * 30.0, -170.0, 170.0)
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 220.0 + rayVertical * 82.0, -360.0, 360.0)
       const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
       const depthPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -swimY)
       const tappedPoint = new THREE.Vector3()
@@ -331,8 +331,8 @@ export function StudioScene({
           forward.normalize()
           dx = forward.x * 115
           dz = forward.z * 115
-        } else if (horizontalDistance > 680) {
-          const scale = 680 / horizontalDistance
+        } else if (horizontalDistance > 1250) {
+          const scale = 1250 / horizontalDistance
           dx *= scale
           dz *= scale
         }
@@ -343,7 +343,7 @@ export function StudioScene({
         horizontalDirection.y = 0
         if (horizontalDirection.lengthSq() < 0.0025) horizontalDirection.set(0, 0, -1)
         else horizontalDirection.normalize()
-        const distance = 220 + (1 - Math.abs(pointerY)) * 160
+        const distance = 480 + (1 - Math.abs(pointerY)) * 320
         x = current.x + horizontalDirection.x * distance
         z = current.z + horizontalDirection.z * distance
       }
@@ -432,12 +432,14 @@ export function StudioScene({
         dpr={Math.min(graphics.dpr, adaptiveDpr)}
         performance={{ min: 0.45, max: 1, debounce: 180 }}
         gl={{ antialias: graphics.antialias, powerPreference: 'high-performance', precision: 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 1.12 : 1.04, stencil: false, preserveDrawingBuffer: false }}
-        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: graphicsTier === 'mobile' ? 52 : 48, near: 0.1, far: 1200 }}
+        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: underwater ? (graphicsTier === 'mobile' ? 102 : 96) : graphicsTier === 'mobile' ? 52 : 48, near: 0.25, far: 12000 }}
+        onCreated={({ scene }) => {
+          scene.background = new THREE.Color(underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7')
+        }}
         onPointerMissed={() => { document.body.style.cursor = 'auto' }}
       >
-        <color attach="background" args={[underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7']} />
         <fog attach="fog" args={underwater
-          ? ['#07506a', 34, 292]
+          ? ['#07506a', 420, 2600]
           : [isNight ? '#0b1329' : '#d8edf5', 420, 1250]}
         />
 
@@ -523,7 +525,7 @@ export function StudioScene({
           enableZoom
           zoomSpeed={1.12}
           minDistance={underwater ? (graphicsTier === 'mobile' ? 8.0 : 7.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 420 : graphicsTier === 'balanced' ? 450 : 480) : graphicsTier === 'mobile' ? 52 : 56}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 1400 : graphicsTier === 'balanced' ? 1550 : 1750) : graphicsTier === 'mobile' ? 52 : 56}
           // Outdoors: keep the camera close to the horizon so looking upward
           // cannot pass through the ground. Underwater remains a free 3D orbit.
           minPolarAngle={underwater ? 0.16 : 1.28}
@@ -536,7 +538,7 @@ export function StudioScene({
       {underwater && (
         <div className="mpd-underwater-hud">
           <div className="mpd-underwater-title"><span className="mpd-underwater-live-dot" /> SCUBA EXPLORATION</div>
-          <div className="mpd-underwater-subtitle">최대 수심 약 300m · 360° 산호초 · 자연 암굴 · 자유 잠수</div>
+          <div className="mpd-underwater-subtitle">최대 수심 약 600m · 360° 산호초 · 자연 암굴 · 넓은 자유 잠수</div>
           <button type="button" onClick={riseToSurface} className="mpd-surface-button">↑ 수면으로 올라와 스튜디오로 돌아가기</button>
         </div>
       )}

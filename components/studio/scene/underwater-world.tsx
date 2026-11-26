@@ -1,8 +1,8 @@
 'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
-import { useFrame } from '@react-three/fiber'
-import { useEffect, useMemo, useRef, type MutableRefObject } from 'react'
+import { useFrame, useThree } from '@react-three/fiber'
+import { useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject } from 'react'
 import { useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 import type { GraphicsTier } from '@/lib/graphics-quality'
@@ -281,81 +281,40 @@ function createUnderwaterPanorama(quality: GraphicsTier) {
   return texture
 }
 
-function createCleanUnderwaterTexture(source: THREE.Texture, quality: GraphicsTier) {
-  if (typeof document === 'undefined') return source
-  const image = source.image as HTMLImageElement
-  const sourceWidth = image?.naturalWidth || image?.width || 0
-  const sourceHeight = image?.naturalHeight || image?.height || 0
-  if (!sourceWidth || !sourceHeight) return source
-  const maxWidth = quality === 'mobile' ? 1024 : 2048
-  const width = Math.min(sourceWidth, maxWidth)
-  const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth))
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return source
-
-  // Preserve the V20 framing: the user approved this underwater field of view.
-  // Only feather the 360 seam; the central blur is removed by omitting artificial light cones.
-  const crop = Math.round(sourceWidth * 0.065)
-  ctx.filter = quality === 'mobile' ? 'contrast(1.025) saturate(1.025)' : 'contrast(1.055) saturate(1.04)';
-  ctx.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
-  ctx.filter = 'none'
-  const frame = ctx.getImageData(0, 0, width, height)
-  const pixels = frame.data
-  // Keep the seam blend very narrow: broad averaging made a visible soft strip.
-  // The seam itself is rotated behind the diver's default camera in UnderwaterDome.
-  const band = Math.max(2, Math.floor(width * 0.004))
-  for (let y = 0; y < height; y += 1) {
-    const li = y * width * 4
-    const ri = (y * width + width - 1) * 4
-    const average = [0, 1, 2].map((c) => (pixels[li + c] + pixels[ri + c]) * 0.5)
-    for (let x = 0; x < band; x += 1) {
-      const t = x / Math.max(1, band - 1)
-      const left = (y * width + x) * 4
-      const right = (y * width + width - band + x) * 4
-      for (let c = 0; c < 3; c += 1) {
-        const a = pixels[left + c]
-        const b = pixels[right + c]
-        pixels[left + c] = Math.round(average[c] * (1 - t) + a * t)
-        pixels[right + c] = Math.round(b * (1 - t) + average[c] * t)
-      }
-    }
-  }
-  ctx.putImageData(frame, 0, 0)
-  const cleaned = new THREE.CanvasTexture(canvas)
-  cleaned.colorSpace = THREE.SRGBColorSpace
-  cleaned.wrapS = THREE.RepeatWrapping
-  cleaned.wrapT = THREE.ClampToEdgeWrapping
-  cleaned.repeat.set(1, 1)
-  cleaned.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 10 : 16
-  cleaned.minFilter = THREE.LinearMipmapLinearFilter
-  cleaned.magFilter = THREE.LinearFilter
-  cleaned.generateMipmaps = true
-  cleaned.needsUpdate = true
-  return cleaned
-}
-
 function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
-  const dome = useRef<THREE.Mesh>(null)
-  const source = useTexture(quality === 'mobile' ? '/images/mpd-underwater-real-panorama-mobile.webp' : '/images/mpd-underwater-real-panorama.webp')
-  const texture = useMemo(() => createCleanUnderwaterTexture(source, quality), [source, quality])
-  // A larger 360 shell gives the diver room to move without the photo feeling
-  // like a close flat wall; a wider camera FOV complements this on phones.
-  const geometry = useMemo(() => new THREE.SphereGeometry(2000, quality === 'mobile' ? 64 : quality === 'balanced' ? 88 : 112, quality === 'mobile' ? 40 : quality === 'balanced' ? 58 : 76), [quality])
-  useEffect(() => () => {
-    if (texture !== source) texture.dispose()
-    geometry.dispose()
-  }, [texture, source, geometry])
-  // SphereGeometry places its UV seam on a vertical meridian. Rotate that
-  // meridian to the -Z rear of the default over-the-shoulder camera so it cannot
-  // sit through the diver's forward view. Keep the 360 photo stationary.
-  return (
-    <mesh ref={dome} geometry={geometry} raycast={noRaycast} renderOrder={-10} rotation-y={-Math.PI / 2} frustumCulled={false}>
-      <meshBasicMaterial map={texture} side={THREE.BackSide} fog={false} depthWrite={false} toneMapped={false} />
-    </mesh>
-  )
+  // The complete approved 2:1 underwater photograph is rendered as the scene's
+  // equirectangular background. This avoids a far-plane / sphere-shell clipping
+  // failure and prevents the 360 seam from appearing as a tiny blue crescent.
+  const texture = useTexture(quality === 'mobile'
+    ? '/images/mpd-underwater-real-panorama-mobile.webp'
+    : '/images/mpd-underwater-real-panorama.webp')
+  const scene = useThree((state) => state.scene)
+  useLayoutEffect(() => {
+    const previousBackground = scene.background
+    const previousRotation = scene.backgroundRotation.clone()
+    const previousIntensity = scene.backgroundIntensity
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.mapping = THREE.EquirectangularReflectionMapping
+    texture.wrapS = THREE.RepeatWrapping
+    texture.wrapT = THREE.ClampToEdgeWrapping
+    texture.repeat.set(1, 1)
+    texture.minFilter = THREE.LinearMipmapLinearFilter
+    texture.magFilter = THREE.LinearFilter
+    texture.generateMipmaps = true
+    texture.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 10 : 16
+    texture.needsUpdate = true
+    scene.background = texture
+    // Aim the default over-the-shoulder forward view at the cave/reef centre,
+    // rather than the smeared left/right edge of the equirectangular photograph.
+    scene.backgroundRotation.set(0, 3.02, 0)
+    scene.backgroundIntensity = 1.0
+    return () => {
+      scene.background = previousBackground
+      scene.backgroundRotation.copy(previousRotation)
+      scene.backgroundIntensity = previousIntensity
+    }
+  }, [scene, texture, quality])
+  return null
 }
 
 function TropicalFish({ index, quality, school = 0, baseDepth = -1.15 }: FishProps) {
@@ -1020,7 +979,7 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
   const heroFishCount = quality === 'mobile' ? 10 : quality === 'balanced' ? 15 : 20
   // About five times the previous total population, still GPU-instanced in only
   // three schools (two draw calls per school) to keep mobile rendering practical.
-  const schoolCounts = quality === 'mobile' ? [72, 44, 24] : quality === 'balanced' ? [132, 78, 50] : [220, 130, 70]
+  const schoolCounts = quality === 'mobile' ? [84, 54, 32, 18] : quality === 'balanced' ? [148, 94, 58, 32] : [236, 154, 92, 48]
   const kelpCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 3 : 4
   const coralCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 3 : 4
   const coralPositions = useMemo(() => Array.from({ length: coralCount }, (_, i) => {
@@ -1054,18 +1013,22 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
 
       {/* Three broad schools create roughly five times the visible marine life.
           Instancing keeps the additional fish inexpensive on mobile and desktop. */}
-      <InstancedFishSchool count={schoolCounts[0]} school={3} baseDepth={-18.0} spreadX={132} spreadZ={118} />
-      <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-118.0} spreadX={316} spreadZ={286} />
-      <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-215.0} spreadX={500} spreadZ={460} />
+      <InstancedFishSchool count={schoolCounts[0]} school={3} baseDepth={-18.0} spreadX={180} spreadZ={160} />
+      <InstancedFishSchool count={schoolCounts[1]} school={8} baseDepth={-118.0} spreadX={360} spreadZ={330} />
+      <InstancedFishSchool count={schoolCounts[2]} school={13} baseDepth={-245.0} spreadX={610} spreadZ={560} />
+      <InstancedFishSchool count={schoolCounts[3]} school={17} baseDepth={-330.0} spreadX={850} spreadZ={790} />
       {/* Distant silhouettes add scale and life beyond the foreground escort. */}
-      <SeaTurtle position={[54, -22.5, -108]} scale={quality === 'mobile' ? 0.9 : 1.16} depthY={-22.5} />
-      <SeaTurtle position={[-78, -54, 96]} scale={quality === 'mobile' ? 0.72 : 0.94} depthY={-54} />
-      <MantaRay position={[-92, -34.5, -142]} depthY={-34.5} scale={quality === 'mobile' ? 1.08 : 1.38} />
-      <MantaRay position={[122, -66, 114]} depthY={-66} scale={quality === 'mobile' ? 0.82 : 1.08} />
-      <LargeMarineAnimal kind="whale" position={[112, -52.5, -188]} scale={quality === 'mobile' ? 0.88 : 1.24} phase={2.1} />
-      <LargeMarineAnimal kind="whale" position={[-168, -86, 174]} scale={quality === 'mobile' ? 0.72 : 1.02} phase={6.4} />
-      <LargeMarineAnimal kind="whale-shark" position={[-126, -46.5, -156]} scale={quality === 'mobile' ? 0.78 : 1.02} phase={4.2} />
-      <LargeMarineAnimal kind="reef-shark" position={[156, -28.0, 142]} scale={quality === 'mobile' ? 0.78 : 1.02} phase={5.4} />
+      <SeaTurtle position={[154, -32.5, -268]} scale={quality === 'mobile' ? 0.9 : 1.16} depthY={-32.5} />
+      <SeaTurtle position={[-278, -94, 326]} scale={quality === 'mobile' ? 0.72 : 0.94} depthY={-94} />
+      <MantaRay position={[-292, -64.5, -362]} depthY={-34.5} scale={quality === 'mobile' ? 1.08 : 1.38} />
+      <MantaRay position={[422, -126, 314]} depthY={-66} scale={quality === 'mobile' ? 0.82 : 1.08} />
+      <LargeMarineAnimal kind="whale" position={[512, -82.5, -588]} scale={quality === 'mobile' ? 0.88 : 1.24} phase={2.1} />
+      <LargeMarineAnimal kind="whale" position={[-668, -166, 574]} scale={quality === 'mobile' ? 0.72 : 1.02} phase={6.4} />
+      <LargeMarineAnimal kind="whale-shark" position={[-526, -76.5, -556]} scale={quality === 'mobile' ? 0.78 : 1.02} phase={4.2} />
+      <LargeMarineAnimal kind="reef-shark" position={[656, -48.0, 542]} scale={quality === 'mobile' ? 0.78 : 1.02} phase={5.4} />
+      <SeaTurtle position={[690, -214, -720]} scale={quality === 'mobile' ? 0.68 : 0.92} depthY={-214} />
+      <MantaRay position={[-760, -188, 690]} depthY={-188} scale={quality === 'mobile' ? 0.78 : 1.05} />
+      <LargeMarineAnimal kind="whale" position={[840, -258, 720]} scale={quality === 'mobile' ? 0.78 : 1.08} phase={8.1} />
       {Array.from({ length: heroFishCount }, (_, i) => (
         <TropicalFish key={`hero-fish-${i}`} index={i % 3 === 0 ? i * 7 + 21 : i * 7 + 20} quality={quality} school={i % 3 + 1} baseDepth={-2.8 - (i % 3) * 1.0} />
       ))}

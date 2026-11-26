@@ -1,0 +1,9 @@
+MPD MUSIC STUDIO WORLD V31
+
+1. 수중 배경을 2000-unit SphereGeometry에서 제거하고 원본 360도 파노라마를 Scene.background에 직접 연결
+2. 하늘도 같은 방식으로 무한 원경 equirectangular background 적용
+3. React color attach가 파노라마 배경을 덮지 않도록 제거하고 Canvas onCreated fallback 적용
+4. 정면 해안 사진의 하늘을 기준으로 V31 2:1 하늘 파노라마 생성
+5. 수중 카메라 시야/거리 및 클릭 이동 범위 확장, 이동 월드 범위 ±1250 / 수심 600m
+6. 모바일 MPD 플레이어와 상승/하강 버튼 간격 및 터치 영역 재조정
+7. 기존 원본 underwater panorama 및 marine assets 유지
