@@ -35,7 +35,14 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   }, [onMove, underwater])
 
   useEffect(() => {
-    if (!underwater) vertical.current = 0
+    // A pool-to-underwater transition must not inherit a stale joystick/key press.
+    keys.current.clear()
+    stick.current = ZERO
+    vertical.current = 0
+    lastPublished.current = ZERO
+    activePointer.current = null
+    setThumb({ x: 0, y: 0 })
+    onMove(ZERO)
     const movementKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'])
     const isTyping = (target: EventTarget | null) => {
       const element = target as HTMLElement | null
@@ -102,7 +109,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   }
   const startDiveAxis = (event: ReactPointerEvent<HTMLButtonElement>, value: number) => {
     event.preventDefault()
-    event.currentTarget.setPointerCapture(event.pointerId)
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* pointer may already be released by the browser */ }
     setDiveAxis(value)
   }
   const stopDiveAxis = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -124,7 +131,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
           onPointerDown={(event) => {
             event.preventDefault()
             activePointer.current = event.pointerId
-            event.currentTarget.setPointerCapture(event.pointerId)
+            try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* pointer may already be released */ }
             updateStick(event)
           }}
           onPointerMove={(event) => { if (activePointer.current === event.pointerId) updateStick(event) }}

@@ -1,0 +1,21 @@
+MPD WORLD V32 PATCH MANIFEST
+
+Modified source files:
+- app/globals.css
+- components/studio/chat-panel.tsx
+- components/studio/player-controls.tsx
+- components/studio/scene/outdoor.tsx
+- components/studio/scene/studio-scene.tsx
+- components/studio/scene/underwater-world.tsx
+- components/studio/studio-app.tsx
+
+Added image assets:
+- public/images/mpd-sky-panorama-v32.webp
+- public/images/mpd-sky-panorama-v32-mobile.webp
+- public/images/mpd-underwater-natural-v32.webp
+- public/images/mpd-underwater-natural-v32-mobile.webp
+
+Not included / never overwritten:
+- .env, .env.local, .env.*
+- .git, .vercel, node_modules, .next
+- Supabase credentials and Vercel project secrets

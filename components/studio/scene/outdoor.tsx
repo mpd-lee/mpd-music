@@ -144,8 +144,8 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
   // Use a real equirectangular scene background instead of a distant mesh.
   // The background is infinitely distant and cannot leave a blue gap above the forest.
   const texture = useTexture(quality === 'mobile'
-    ? '/images/mpd-sky-panorama-v31-mobile.webp'
-    : '/images/mpd-sky-panorama-v31.webp')
+    ? '/images/mpd-sky-panorama-v32-mobile.webp'
+    : '/images/mpd-sky-panorama-v32.webp')
   const scene = useThree((state) => state.scene)
   useLayoutEffect(() => {
     const previousBackground = scene.background
@@ -1279,8 +1279,8 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
   // Keep the center-front bay clear and preserve natural forest coverage beyond the lounge area.
   const nearForest: { position: [number, number, number]; scale: number; seed: number }[] = []
   const sideStep = quality === 'mobile' ? 13.2 : quality === 'balanced' ? 11.8 : 10.8
-  // One near row instead of two cuts the visible trunks around the pavilion roughly in half.
-  const sideRows = quality === 'mobile' ? [35] : [32]
+  // Keep the nearest trunks beyond the pavilion's immediate sightline. This opens a clean sky band above the roof while the photo forest and rear rows preserve a continuous green horizon.
+  const sideRows = quality === 'mobile' ? [38] : [40]
   for (const side of [-1, 1]) {
     for (const rowX of sideRows) {
       let rowIndex = 0
@@ -1290,7 +1290,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
         if (inNoTreeZone(x, staggeredZ)) { rowIndex += 1; continue }
         nearForest.push({
           position: [x, getIslandGroundHeight(x, staggeredZ), staggeredZ],
-          scale: (1.0 + ((rowIndex * 7 + rowX) % 5) * 0.12) * 0.72,
+          scale: (1.0 + ((rowIndex * 7 + rowX) % 5) * 0.10) * 0.64,
           seed: 9100 + nearForest.length * 17 + (side > 0 ? 3 : 0),
         })
         rowIndex += 1

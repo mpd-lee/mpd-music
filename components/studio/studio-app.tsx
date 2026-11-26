@@ -48,6 +48,12 @@ export default function StudioApp() {
     }
   }, [])
 
+  useEffect(() => {
+    const closeGuestbook = () => setGuestbookOpen(false)
+    window.addEventListener('mpd-close-guestbook', closeGuestbook)
+    return () => window.removeEventListener('mpd-close-guestbook', closeGuestbook)
+  }, [])
+
   const enter = () => {
     unlockAudio()
     musicPlayerRef.current?.playFromGesture()
@@ -72,13 +78,13 @@ export default function StudioApp() {
       )}
       {entered && <Loader containerStyles={{ background: '#0c0a09' }} barStyles={{ background: '#e8b26a' }} dataInterpolation={(p) => `스튜디오 불러오는 중 ${p.toFixed(0)}%`} />}
 
-      <header className="pointer-events-none fixed inset-x-4 top-4 z-20 flex items-start justify-between gap-3">
+      <header className="mpd-topbar pointer-events-none fixed inset-x-4 top-4 z-20 flex items-start justify-between gap-3">
         <a
           href="https://mpd-music.carrd.co"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="[MPD] MPD Music Studio 사운드 프로덕션 & 뮤직 커뮤니티 공식 페이지 열기"
-          className="pointer-events-auto flex items-center gap-3 rounded-full border border-white/10 bg-neutral-950/65 py-1.5 pl-1.5 pr-4 backdrop-blur-md transition hover:border-amber-200/50 hover:bg-neutral-900/80"
+          className="mpd-brand pointer-events-auto flex items-center gap-3 rounded-full border border-white/10 bg-neutral-950/65 py-1.5 pl-1.5 pr-4 backdrop-blur-md transition hover:border-amber-200/50 hover:bg-neutral-900/80"
         >
           <span className="flex h-9 items-center rounded-full border border-amber-200/35 bg-gradient-to-br from-amber-200 to-amber-400 px-2.5 text-[11px] font-black tracking-wide text-neutral-950">[MPD]</span>
           <div className="min-w-0 leading-tight">
@@ -86,7 +92,7 @@ export default function StudioApp() {
             <p className="truncate text-[10px] font-medium tracking-[0.04em] text-amber-100/75">사운드 프로덕션 & 뮤직 커뮤니티</p>
           </div>
         </a>
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className="mpd-topbar-actions pointer-events-auto flex items-center gap-2">
           <span className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-neutral-950/65 px-3 py-2 text-xs backdrop-blur-md md:flex">
             <span className={`size-1.5 rounded-full ${multiplayer.connection === 'online' ? 'bg-emerald-400' : 'bg-amber-300'}`} />
             {multiplayer.connection === 'online' ? `접속자 ${multiplayer.players.length + 1}명` : multiplayer.connection === 'error' ? '연결 설정 확인' : '미리보기'}
@@ -102,7 +108,7 @@ export default function StudioApp() {
             href={YOUTUBE_CHANNEL_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-2 text-xs font-semibold transition hover:bg-red-500"
+            className="mpd-youtube-link flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-2 text-xs font-semibold transition hover:bg-red-500"
           >
             YouTube
             <ExternalLink className="size-3.5" aria-hidden="true" />
@@ -115,8 +121,8 @@ export default function StudioApp() {
         className="mpd-top-nav fixed right-4 top-[4.35rem] z-20 flex items-center gap-1 rounded-2xl border border-white/10 bg-neutral-950/75 p-1.5 shadow-xl backdrop-blur-md max-sm:right-2 max-sm:top-[4.1rem]"
       >
         {[
-          { label: '방명록', icon: BookOpen, onClick: () => setGuestbookOpen((v) => !v), active: guestbookOpen },
-          { label: '촛불 켜기', icon: Flame, onClick: () => setGuestbookOpen(true), active: false },
+          { label: '방명록', icon: BookOpen, onClick: () => { const opening = !guestbookOpen; if (opening) window.dispatchEvent(new Event('mpd-minimize-chat')); setGuestbookOpen(opening) }, active: guestbookOpen },
+          { label: '촛불 켜기', icon: Flame, onClick: () => { window.dispatchEvent(new Event('mpd-minimize-chat')); setGuestbookOpen(true) }, active: false },
           { label: '시점 초기화', icon: RotateCcw, onClick: () => setResetKey((k) => k + 1), active: false },
         ].map(({ label, icon: Icon, onClick, active }) => (
           <button

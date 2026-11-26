@@ -130,8 +130,9 @@ export function StudioScene({
     // Only the actual PoolWater mesh may initiate a dive. Walking or clicking on
     // the surrounding deck remains ordinary ground navigation, so the pool's
     // broad visual bounds cannot pull a nearby destination underwater.
-    if (underwaterRef.current && position[1] >= 0.10) {
-      // Reaching the surface restores the outdoor scene and normal clothes automatically.
+    if (underwaterRef.current && position[1] >= UNDERWATER_SURFACE_Y - 0.035) {
+      // Exit only at the actual waterline. The previous 0.10m threshold ended a
+      // dive too early and made the ascent control feel as if it stopped working.
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       underwaterRef.current = false
       setUnderwater(false)
@@ -309,44 +310,40 @@ export function StudioScene({
       // touch therefore use the same deterministic 3-axis destination.
       const current = localPositionRef.current
       const pointerY = THREE.MathUtils.clamp(e.pointer.y, -1, 1)
-      // The tap chooses a depth layer, then its actual camera ray is intersected
-      // with that layer. This sends the diver to the tapped screen location instead
-      // of the old short fixed forward step. Works for mouse and touch alike.
-      const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.78, 0.78)
-      const verticalDelta = THREE.MathUtils.clamp(pointerY * 220.0 + rayVertical * 82.0, -360.0, 360.0)
-      const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
+      // Touch/click depth is deliberately bounded: top of the screen means rise,
+      // bottom means descend. A single tap must never send the diver hundreds of
+      // metres away or create an unreachable route beyond the visible reef.
+      const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.72, 0.72)
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 76.0 + rayVertical * 18.0, -105.0, 105.0)
+      const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.035)
       const depthPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -swimY)
       const tappedPoint = new THREE.Vector3()
       const planeHit = e.ray.intersectPlane(depthPlane, tappedPoint)
-      let x: number
-      let z: number
+      const horizontalDirection = e.ray.direction.clone()
+      horizontalDirection.y = 0
+      if (horizontalDirection.lengthSq() < 0.0025) horizontalDirection.set(0, 0, -1)
+      horizontalDirection.normalize()
+      const fallbackDistance = 84.0 + (1 - Math.abs(pointerY)) * 34.0
+      let dx: number
+      let dz: number
       if (planeHit && Number.isFinite(tappedPoint.x) && Number.isFinite(tappedPoint.z)) {
-        let dx = tappedPoint.x - current.x
-        let dz = tappedPoint.z - current.z
+        dx = tappedPoint.x - current.x
+        dz = tappedPoint.z - current.z
         const horizontalDistance = Math.hypot(dx, dz)
-        if (horizontalDistance < 3.5) {
-          const forward = e.ray.direction.clone()
-          forward.y = 0
-          if (forward.lengthSq() < 0.0025) forward.set(0, 0, -1)
-          forward.normalize()
-          dx = forward.x * 115
-          dz = forward.z * 115
-        } else if (horizontalDistance > 1250) {
-          const scale = 1250 / horizontalDistance
+        if (horizontalDistance < 8.0) {
+          dx = horizontalDirection.x * fallbackDistance
+          dz = horizontalDirection.z * fallbackDistance
+        } else if (horizontalDistance > 220.0) {
+          const scale = 220.0 / horizontalDistance
           dx *= scale
           dz *= scale
         }
-        x = current.x + dx
-        z = current.z + dz
       } else {
-        const horizontalDirection = e.ray.direction.clone()
-        horizontalDirection.y = 0
-        if (horizontalDirection.lengthSq() < 0.0025) horizontalDirection.set(0, 0, -1)
-        else horizontalDirection.normalize()
-        const distance = 480 + (1 - Math.abs(pointerY)) * 320
-        x = current.x + horizontalDirection.x * distance
-        z = current.z + horizontalDirection.z * distance
+        dx = horizontalDirection.x * fallbackDistance
+        dz = horizontalDirection.z * fallbackDistance
       }
+      let x = current.x + dx
+      let z = current.z + dz
       x = THREE.MathUtils.clamp(x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
       z = THREE.MathUtils.clamp(z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
       setTravel({ position: new THREE.Vector3(x, swimY, z), sit: false })
@@ -431,8 +428,8 @@ export function StudioScene({
         shadows={!underwater && graphics.shadows}
         dpr={Math.min(graphics.dpr, adaptiveDpr)}
         performance={{ min: 0.45, max: 1, debounce: 180 }}
-        gl={{ antialias: graphics.antialias, powerPreference: 'high-performance', precision: 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 1.12 : 1.04, stencil: false, preserveDrawingBuffer: false }}
-        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: underwater ? (graphicsTier === 'mobile' ? 102 : 96) : graphicsTier === 'mobile' ? 52 : 48, near: 0.25, far: 12000 }}
+        gl={{ antialias: graphics.antialias, powerPreference: 'high-performance', precision: 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 0.98 : 1.04, stencil: false, preserveDrawingBuffer: false }}
+        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: underwater ? (graphicsTier === 'mobile' ? 106 : 100) : graphicsTier === 'mobile' ? 52 : 48, near: 0.25, far: 12000 }}
         onCreated={({ scene }) => {
           scene.background = new THREE.Color(underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7')
         }}
@@ -525,7 +522,7 @@ export function StudioScene({
           enableZoom
           zoomSpeed={1.12}
           minDistance={underwater ? (graphicsTier === 'mobile' ? 8.0 : 7.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 1400 : graphicsTier === 'balanced' ? 1550 : 1750) : graphicsTier === 'mobile' ? 52 : 56}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 1650 : graphicsTier === 'balanced' ? 1850 : 2050) : graphicsTier === 'mobile' ? 52 : 56}
           // Outdoors: keep the camera close to the horizon so looking upward
           // cannot pass through the ground. Underwater remains a free 3D orbit.
           minPolarAngle={underwater ? 0.16 : 1.28}

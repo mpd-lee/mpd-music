@@ -1,0 +1,13 @@
+﻿MPD WORLD V32 소스 정적 검사 기록
+
+검사 항목
+- 수정된 TSX 6개 파일 TypeScript transpileModule 구문 검사: 성공
+- app/globals.css 중괄호 균형 검사: 성공
+- 이미지 파일 WebP 디코딩/크기 검사: 성공
+
+미수행
+- 프로젝트 전체 TypeScript 타입 검사: 실행 환경에 프로젝트 node_modules가 없어 완료하지 못함
+- Next.js production build: 실행 환경에 의존성이 설치되어 있지 않아 완료하지 못함
+- Windows 실제 브라우저 및 터치 입력 테스트: 수행하지 못함
+
+따라서 패치 PowerShell은 사용자의 Windows 프로젝트 폴더에서 TypeScript 검사와 Next.js 빌드가 모두 성공한 경우에만 Git Push 및 Vercel 배포를 진행하도록 구성했습니다.

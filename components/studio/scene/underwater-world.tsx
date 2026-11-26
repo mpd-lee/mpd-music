@@ -286,8 +286,8 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
   // equirectangular background. This avoids a far-plane / sphere-shell clipping
   // failure and prevents the 360 seam from appearing as a tiny blue crescent.
   const texture = useTexture(quality === 'mobile'
-    ? '/images/mpd-underwater-real-panorama-mobile.webp'
-    : '/images/mpd-underwater-real-panorama.webp')
+    ? '/images/mpd-underwater-natural-v32-mobile.webp'
+    : '/images/mpd-underwater-natural-v32.webp')
   const scene = useThree((state) => state.scene)
   useLayoutEffect(() => {
     const previousBackground = scene.background
@@ -307,7 +307,7 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
     // Aim the default over-the-shoulder forward view at the cave/reef centre,
     // rather than the smeared left/right edge of the equirectangular photograph.
     scene.backgroundRotation.set(0, 3.02, 0)
-    scene.backgroundIntensity = 1.0
+    scene.backgroundIntensity = quality === 'mobile' ? 0.88 : 0.84
     return () => {
       scene.background = previousBackground
       scene.backgroundRotation.copy(previousRotation)
@@ -770,7 +770,7 @@ function ReefEscarpmentRock({ index, quality, count, baseY = -15.05 }: { index: 
   )
 }
 
-function CoralBranch({ position, tint, seed }: { position: [number, number, number]; tint: string; seed: number }) {
+function CoralBranch({ position, tint, seed, scale = 1 }: { position: [number, number, number]; tint: string; seed: number; scale?: number }) {
   const branches = useMemo(() => Array.from({ length: 5 + (seed % 3) }, (_, i) => ({
     x: Math.sin(i * 2.31 + seed) * 0.38,
     z: Math.cos(i * 1.87 + seed) * 0.32,
@@ -778,7 +778,7 @@ function CoralBranch({ position, tint, seed }: { position: [number, number, numb
     lean: Math.sin(i * 4.1 + seed) * 0.22,
   })), [seed])
   return (
-    <group position={position} raycast={noRaycast}>
+    <group position={position} scale={scale} raycast={noRaycast}>
       <mesh position={[0, 0.3, 0]}>
         <dodecahedronGeometry args={[0.42, 1]} />
         <meshStandardMaterial color="#7d8871" roughness={0.98} />
@@ -945,12 +945,12 @@ function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: 
   }, [texture, quality])
   const geometry = useMemo(() => {
     const segments = quality === 'mobile' ? 24 : quality === 'balanced' ? 38 : 56
-    const plane = new THREE.PlaneGeometry(1720, 1720, segments * 2, segments * 2)
+    const plane = new THREE.PlaneGeometry(2600, 2600, segments * 2, segments * 2)
     const positions = plane.attributes.position as THREE.BufferAttribute
     for (let i = 0; i < positions.count; i += 1) {
       const x = positions.getX(i)
       const z = positions.getY(i)
-      const radial = Math.min(1, Math.hypot(x, z) / 860)
+      const radial = Math.min(1, Math.hypot(x, z) / 1300)
       const lowRoll = Math.sin(x * 0.045) * 0.14 + Math.cos(z * 0.052) * 0.12 + Math.sin((x + z) * 0.031) * 0.10
       const edgeRise = radial * radial * 1.45
       positions.setZ(i, lowRoll + edgeRise)
@@ -973,43 +973,49 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
   quality?: GraphicsTier
   playerPositionRef?: MutableRefObject<THREE.Vector3>
 }) {
-  // The 2:1 photographic panorama already contains one continuous 360-degree
-  // reef, natural rock arch and real-looking seabed. Do not cover it with a
-  // synthetic floor slab or duplicate procedural cave/rock walls.
+  // Keep the panoramic photograph as the distant 360-degree reef, and add a
+  // restrained real 3D seabed plus separate reef outcrops so movement has depth cues.
   const heroFishCount = quality === 'mobile' ? 10 : quality === 'balanced' ? 15 : 20
-  // About five times the previous total population, still GPU-instanced in only
-  // three schools (two draw calls per school) to keep mobile rendering practical.
+  // Wide, instanced schools extend into the distance without creating hundreds of draw calls.
   const schoolCounts = quality === 'mobile' ? [84, 54, 32, 18] : quality === 'balanced' ? [148, 94, 58, 32] : [236, 154, 92, 48]
-  const kelpCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 3 : 4
-  const coralCount = quality === 'mobile' ? 1 : quality === 'balanced' ? 3 : 4
+  const kelpCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 4 : 6
+  const coralCount = quality === 'mobile' ? 6 : quality === 'balanced' ? 10 : 14
+  const rockCount = quality === 'mobile' ? 3 : quality === 'balanced' ? 5 : 7
   const coralPositions = useMemo(() => Array.from({ length: coralCount }, (_, i) => {
     const angle = i * 2.399963 + 0.25
-    const radius = 11 + (i % 3) * 4.2
+    const radius = 18 + (i % 4) * 17 + Math.floor(i / 4) * 8
+    const depth = [-14.8, -22.5, -34.0, -48.0, -64.0, -82.0, -108.0][i % 7]
     return {
-      position: [Math.cos(angle) * radius, -12.8 - (i % 2) * 1.2, Math.sin(angle) * radius - 1] as [number, number, number],
-      tint: ['#958d78', '#8a9a89', '#a28b75'][i % 3],
+      position: [Math.cos(angle) * radius, depth, Math.sin(angle) * radius - 1] as [number, number, number],
+      tint: ['#958d78', '#8a9a89', '#a28b75', '#738f83'][i % 4],
       seed: i * 29 + 37,
+      scale: 0.82 + (i % 3) * 0.18,
     }
   }), [coralCount])
   const kelpPositions = useMemo(() => Array.from({ length: kelpCount }, (_, i) => {
     const angle = i * 2.399963 + 0.65
-    const radius = 15 + (i % 3) * 5.5
-    return [Math.cos(angle) * radius, -13.4, Math.sin(angle) * radius + 3] as [number, number, number]
+    const radius = 18 + (i % 3) * 10.5
+    const depth = -12.8 - (i % 3) * 6.5
+    return [Math.cos(angle) * radius, depth, Math.sin(angle) * radius + 3] as [number, number, number]
   }), [kelpCount])
 
   return (
     <group position={[-34, -2.2, 14]}>
-      <ambientLight color="#83c7d4" intensity={quality === 'mobile' ? 0.72 : 0.82} />
-      <hemisphereLight args={['#c1edf3', '#27464b', 0.72]} />
-      <directionalLight position={[-10, 18, 8]} color="#b7e8ed" intensity={1.0} />
+      <ambientLight color="#83c7d4" intensity={quality === 'mobile' ? 0.44 : 0.52} />
+      <hemisphereLight args={['#c1edf3', '#27464b', 0.42]} />
+      <directionalLight position={[-10, 18, 8]} color="#b7e8ed" intensity={0.42} />
       {/* Natural sunlight is already baked into the 360° photo. Avoid synthetic cones that read as blurry vertical bands. */}
 
       {/* Wide transparent click volume: movement remains free in all 360 degrees. */}
       <mesh onClick={onPathClick} renderOrder={-5}>
-        <sphereGeometry args={[1240, quality === 'mobile' ? 36 : 52, quality === 'mobile' ? 24 : 34]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.BackSide} />
+        <sphereGeometry args={[2200, quality === 'mobile' ? 36 : 52, quality === 'mobile' ? 24 : 34]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
       <UnderwaterDome quality={quality} />
+      <Seabed quality={quality} onPathClick={onPathClick} />
+      {Array.from({ length: rockCount }, (_, index) => (
+        <ReefEscarpmentRock key={`reef-rock-${index}`} index={index} quality={quality} count={rockCount} baseY={-16.2} />
+      ))}
 
       {/* Three broad schools create roughly five times the visible marine life.
           Instancing keeps the additional fish inexpensive on mobile and desktop. */}
@@ -1034,7 +1040,7 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
       ))}
       {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} quality={quality} />}
 
-      {/* Keep only a few restrained foreground plants; the 360° photograph carries the distant reef. */}
+      {/* Dispersed coral heads at different depths give the diver real near-field landmarks. */}
       {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
       {kelpPositions.map((position, i) => <Kelp key={`near-kelp-${i}`} position={position} seed={i * 7.7 + 91} />)}
     </group>
