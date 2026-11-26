@@ -3,17 +3,25 @@ let master: GainNode | null = null
 let noiseBuffer: AudioBuffer | null = null
 
 function audio() {
+  if (typeof window === 'undefined') throw new Error('Audio is available only in the browser.')
   if (!ctx) {
-    ctx = new AudioContext()
+    const AudioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    if (!AudioContextCtor) throw new Error('이 브라우저는 Web Audio를 지원하지 않습니다.')
+    ctx = new AudioContextCtor({ latencyHint: 'interactive' })
     master = ctx.createGain()
-    master.gain.value = 0.85
+    master.gain.value = 0.92
     const compressor = ctx.createDynamicsCompressor()
-    compressor.threshold.value = -14
-    compressor.ratio.value = 4
+    compressor.threshold.value = -18
+    compressor.knee.value = 20
+    compressor.ratio.value = 3.5
+    compressor.attack.value = 0.004
+    compressor.release.value = 0.18
     master.connect(compressor)
     compressor.connect(ctx.destination)
   }
-  if (ctx.state === 'suspended') void ctx.resume()
+  if (ctx.state !== 'running') {
+    void ctx.resume().catch((error) => console.warn('[MPD Studio] AudioContext resume failed:', error))
+  }
   return { ctx, out: master as GainNode }
 }
 
@@ -28,7 +36,60 @@ function getNoise(c: AudioContext) {
 
 export const midiToFreq = (m: number) => 440 * Math.pow(2, (m - 69) / 12)
 
-export function playPiano(midi: number, when = 0, velocity = 0.6) {
+type SampleInstrument = { play: (note: number, time?: number, options?: { duration?: number; gain?: number }) => unknown }
+const sampleInstruments = new Map<string, SampleInstrument>()
+const samplePromises = new Map<string, Promise<SampleInstrument>>()
+
+/** Load one sampled GM instrument only when a visitor first plays it. */
+function requestSampleInstrument(name: string): SampleInstrument | null {
+  const ready = sampleInstruments.get(name)
+  if (ready) return ready
+  if (!samplePromises.has(name)) {
+    const { ctx: c, out } = audio()
+    const noteRange = name === 'acoustic_grand_piano'
+      ? Array.from({ length: 88 }, (_, index) => index + 21)
+      : name === 'electric_piano_1'
+        ? Array.from({ length: 61 }, (_, index) => index + 36)
+        : Array.from({ length: 23 }, (_, index) => index + 33)
+    const promise = import('soundfont-player').then((module) => {
+      const namespace = module as unknown as {
+        instrument?: (context: AudioContext, instrumentName: string, options: Record<string, unknown>) => Promise<SampleInstrument>
+        default?: { instrument?: (context: AudioContext, instrumentName: string, options: Record<string, unknown>) => Promise<SampleInstrument> }
+      }
+      const createInstrument = namespace.instrument ?? namespace.default?.instrument
+      if (!createInstrument) throw new Error('soundfont-player instrument() API를 찾을 수 없습니다.')
+      return createInstrument(c, name, { soundfont: 'FluidR3_GM', format: 'mp3', destination: out, gain: 0.78, notes: noteRange })
+    }).then((instrument) => {
+      sampleInstruments.set(name, instrument)
+      return instrument
+    }).catch((error: unknown) => {
+      samplePromises.delete(name)
+      console.warn(`[MPD Studio] ${name} sample load failed; using the built-in fallback tone.`, error)
+      throw error
+    })
+    samplePromises.set(name, promise)
+    void promise.catch(() => undefined)
+  }
+  return null
+}
+
+function playSampleOrWarm(name: string, midi: number, when: number, duration: number, gain: number) {
+  const instrument = requestSampleInstrument(name)
+  if (!instrument) return false
+  const { ctx: c } = audio()
+  try {
+    instrument.play(midi, c.currentTime + Math.max(0, when), { duration, gain })
+    return true
+  } catch (error) {
+    // A broken/partially-loaded sample must never silence this note or later clicks.
+    sampleInstruments.delete(name)
+    samplePromises.delete(name)
+    console.warn(`[MPD Studio] ${name} sample playback failed; using the built-in tone.`, error)
+    return false
+  }
+}
+
+function playPianoFallback(midi: number, when = 0, velocity = 0.6) {
   const { ctx: c, out } = audio()
   const t = c.currentTime + when
   const f = midiToFreq(midi)
@@ -58,7 +119,18 @@ export function playPiano(midi: number, when = 0, velocity = 0.6) {
   })
 }
 
-export function playRhodes(midi: number, when = 0) {
+export function playPiano(midi: number, when = 0, velocity = 0.6) {
+  const { ctx: c } = audio()
+  if (c.state !== 'running') {
+    void c.resume().then(() => playPiano(midi, when, velocity)).catch(() => playPianoFallback(midi, when, velocity))
+    return
+  }
+  const sampled = playSampleOrWarm('acoustic_grand_piano', midi, when, 2.8, velocity * 0.86)
+  // Audible procedural piano remains as a fallback until each soundfont sample is ready.
+  playPianoFallback(midi, when, sampled ? velocity * 0.22 : velocity)
+}
+
+function playRhodesFallback(midi: number, when = 0, velocity = 0.72) {
   const { ctx: c, out } = audio()
   const t = c.currentTime + when
   const f = midiToFreq(midi)
@@ -73,7 +145,7 @@ export function playRhodes(midi: number, when = 0) {
   modGain.connect(carrier.frequency)
   const env = c.createGain()
   env.gain.setValueAtTime(0, t)
-  env.gain.linearRampToValueAtTime(0.35, t + 0.005)
+  env.gain.linearRampToValueAtTime(0.46 * velocity, t + 0.005)
   env.gain.exponentialRampToValueAtTime(0.001, t + 2.6)
   const tremolo = c.createOscillator()
   tremolo.frequency.value = 4.5
@@ -89,8 +161,62 @@ export function playRhodes(midi: number, when = 0) {
   })
 }
 
+export function playRhodes(midi: number, when = 0, velocity = 0.72) {
+  const { ctx: c } = audio()
+  if (c.state !== 'running') {
+    void c.resume().then(() => playRhodes(midi, when, velocity)).catch(() => playRhodesFallback(midi, when, velocity))
+    return
+  }
+  const sampled = playSampleOrWarm('electric_piano_1', midi, when, 2.2, velocity * 0.82)
+  // Keep a low-level Rhodes FM fallback under the sample: a blocked CDN sample
+  // can never make the keyboard appear dead after the first note.
+  playRhodesFallback(midi, when, sampled ? velocity * 0.34 : velocity)
+}
+
+
+function playSynthFallback(midi: number, when = 0, velocity = 0.68) {
+  const { ctx: c, out } = audio()
+  const t = c.currentTime + Math.max(0, when)
+  const f = midiToFreq(midi)
+  const filter = c.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.setValueAtTime(5200, t)
+  filter.frequency.exponentialRampToValueAtTime(1450, t + 0.42)
+  filter.Q.value = 1.25
+  const envelope = c.createGain()
+  envelope.gain.setValueAtTime(0.0001, t)
+  envelope.gain.linearRampToValueAtTime(velocity * 0.34, t + 0.012)
+  envelope.gain.exponentialRampToValueAtTime(0.12, t + 0.12)
+  envelope.gain.exponentialRampToValueAtTime(0.0008, t + 1.65)
+  filter.connect(envelope)
+  envelope.connect(out)
+  const detunes = [-7, 0, 7]
+  detunes.forEach((cents, index) => {
+    const osc = c.createOscillator()
+    osc.type = index === 1 ? 'sawtooth' : 'triangle'
+    osc.frequency.setValueAtTime(f, t)
+    osc.detune.value = cents
+    const gain = c.createGain()
+    gain.gain.value = index === 1 ? 0.42 : 0.29
+    osc.connect(gain)
+    gain.connect(filter)
+    osc.start(t)
+    osc.stop(t + 1.72)
+  })
+}
+
+export function playSynth(midi: number, when = 0, velocity = 0.68) {
+  const { ctx: c } = audio()
+  if (c.state !== 'running') {
+    void c.resume().then(() => playSynth(midi, when, velocity)).catch(() => playSynthFallback(midi, when, velocity))
+    return
+  }
+  playSynthFallback(midi, when, velocity)
+}
+
 export function playKick() {
   const { ctx: c, out } = audio()
+  if (c.state !== 'running') { void c.resume().then(playKick).catch(() => undefined); return }
   const t = c.currentTime
   const osc = c.createOscillator()
   osc.frequency.setValueAtTime(160, t)
@@ -103,6 +229,49 @@ export function playKick() {
   osc.start(t)
   osc.stop(t + 0.6)
   noiseHit(c, out, { type: 'lowpass', freq: 3000, decay: 0.03, gain: 0.3 })
+}
+
+
+function playFunkyBassFallback(midi: number, when = 0, velocity = 0.72) {
+  const { ctx: c, out } = audio()
+  const t = c.currentTime + when
+  const f = midiToFreq(midi)
+  const osc = c.createOscillator()
+  osc.type = 'sawtooth'
+  osc.frequency.setValueAtTime(f * 1.012, t)
+  osc.frequency.exponentialRampToValueAtTime(f, t + 0.035)
+  const sub = c.createOscillator()
+  sub.type = 'sine'
+  sub.frequency.value = f * 0.5
+  const filter = c.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.setValueAtTime(1800, t)
+  filter.frequency.exponentialRampToValueAtTime(440, t + 0.22)
+  filter.Q.value = 0.85
+  const env = c.createGain()
+  env.gain.setValueAtTime(0.0001, t)
+  env.gain.linearRampToValueAtTime(velocity * 0.62, t + 0.008)
+  env.gain.exponentialRampToValueAtTime(0.0008, t + 0.34)
+  osc.connect(filter)
+  sub.connect(filter)
+  filter.connect(env)
+  env.connect(out)
+  osc.start(t); sub.start(t)
+  osc.stop(t + 0.38); sub.stop(t + 0.38)
+}
+
+/** A short syncopated slap-bass lick; the sampled Slap Bass 1 soundfont is fetched lazily. */
+export function playFunkyBass() {
+  const { ctx: c } = audio()
+  if (c.state !== 'running') { void c.resume().then(playFunkyBass).catch(() => undefined); return }
+  const riff = [40, 43, 45, 47, 50, 47, 45, 43]
+  const timings = [0, 0.085, 0.17, 0.285, 0.48, 0.565, 0.68, 0.79]
+  riff.forEach((note, index) => {
+    const when = timings[index]
+    const velocity = index === 0 ? 0.9 : 0.76
+    const sampled = playSampleOrWarm('slap_bass_1', note, when, 0.24, velocity * 0.85)
+    playFunkyBassFallback(note, when, sampled ? velocity * 0.42 : velocity)
+  })
 }
 
 function noiseHit(
@@ -129,6 +298,7 @@ function noiseHit(
 
 export function playSnare() {
   const { ctx: c, out } = audio()
+  if (c.state !== 'running') { void c.resume().then(playSnare).catch(() => undefined); return }
   const t = c.currentTime
   noiseHit(c, out, { type: 'bandpass', freq: 2200, decay: 0.28, gain: 0.9, q: 0.5 })
   const osc = c.createOscillator()
@@ -146,6 +316,7 @@ export function playSnare() {
 
 export function playTom(freq: number) {
   const { ctx: c, out } = audio()
+  if (c.state !== 'running') { void c.resume().then(() => playTom(freq)).catch(() => undefined); return }
   const t = c.currentTime
   const osc = c.createOscillator()
   osc.frequency.setValueAtTime(freq * 1.6, t)
@@ -162,11 +333,13 @@ export function playTom(freq: number) {
 
 export function playHiHat(open = false) {
   const { ctx: c, out } = audio()
+  if (c.state !== 'running') { void c.resume().then(() => playHiHat(open)).catch(() => undefined); return }
   noiseHit(c, out, { type: 'highpass', freq: 7500, decay: open ? 0.5 : 0.07, gain: 0.5, q: 0.3 })
 }
 
 export function playCymbal(kind: 'crash' | 'ride') {
   const { ctx: c, out } = audio()
+  if (c.state !== 'running') { void c.resume().then(() => playCymbal(kind)).catch(() => undefined); return }
   if (kind === 'crash') {
     noiseHit(c, out, { type: 'highpass', freq: 4500, decay: 2.4, gain: 0.55, q: 0.2 })
     noiseHit(c, out, { type: 'bandpass', freq: 9000, decay: 1.4, gain: 0.25 })
@@ -190,6 +363,7 @@ export function playCymbal(kind: 'crash' | 'ride') {
 
 export function playGuitarString(midi: number, when = 0, gain = 0.5) {
   const { ctx: c, out } = audio()
+  if (c.state !== 'running') { void c.resume().then(() => playGuitarString(midi, when, gain)).catch(() => undefined); return }
   const sr = c.sampleRate
   const f = midiToFreq(midi)
   const length = Math.floor(sr * 2.2)
@@ -243,6 +417,7 @@ export function playPianoChord() {
 
 export function playBlip() {
   const { ctx: c, out } = audio()
+  if (c.state !== 'running') { void c.resume().then(playBlip).catch(() => undefined); return }
   const t = c.currentTime
   ;[880, 1320].forEach((f, i) => {
     const o = c.createOscillator()
@@ -260,5 +435,19 @@ export function playBlip() {
 }
 
 export function unlockAudio() {
-  audio()
+  const { ctx: c, out } = audio()
+  const prime = () => {
+    // A one-sample silent node primes mobile browsers after the entry gesture.
+    const buffer = c.createBuffer(1, 1, c.sampleRate)
+    const source = c.createBufferSource()
+    const gain = c.createGain()
+    gain.gain.value = 0
+    source.buffer = buffer
+    source.connect(gain)
+    gain.connect(out)
+    source.start()
+    source.stop(c.currentTime + 0.01)
+  }
+  if (c.state === 'running') prime()
+  else void c.resume().then(prime).catch((error) => console.warn('[MPD Studio] Tap an instrument once to enable sound:', error))
 }

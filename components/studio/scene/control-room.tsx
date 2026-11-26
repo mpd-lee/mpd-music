@@ -255,7 +255,8 @@ function Chair({ position, rotationY = 0, onSit }: { position: [number, number, 
       labelOffset={[0, 1.35, 0]}
       position={position}
       rotation={[0, rotationY, 0]}
-      onActivate={() => onSit([position[0], 0, position[2] + 0.24], Math.PI)}
+      noCollision
+      onActivate={() => onSit([position[0], 0, position[2] + 0.02], Math.PI)}
     >
       {/* Five-star caster base, gas lift and padded ergonomic seat. */}
       {Array.from({ length: 5 }).map((_, i) => {
@@ -303,7 +304,13 @@ function Chair({ position, rotationY = 0, onSit }: { position: [number, number, 
 
 function LargeRearMonitor({ position }: { position: [number, number, number] }) {
   return (
-    <group position={position} scale={1.85}>
+    <Interactive
+      position={position}
+      label="라지 레퍼런스 스피커 · 지정 음악 무한 반복"
+      labelOffset={[0, 1.55, 0.1]}
+      onActivate={() => window.dispatchEvent(new CustomEvent('mpd-open-speaker-player'))}
+    >
+      <group scale={1.85}>
       <RoundedBox args={[0.82, 1.28, 0.58]} radius={0.06} smoothness={7} castShadow receiveShadow>
         <meshPhysicalMaterial color="#1e2023" roughness={0.28} metalness={0.42} clearcoat={0.55} />
       </RoundedBox>
@@ -327,7 +334,8 @@ function LargeRearMonitor({ position }: { position: [number, number, number] }) 
         <torusGeometry args={[0.09, 0.014, 10, 36]} />
         <meshStandardMaterial color="#b6a06e" metalness={0.8} roughness={0.2} />
       </mesh>
-    </group>
+      </group>
+    </Interactive>
   )
 }
 

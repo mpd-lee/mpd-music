@@ -4,10 +4,10 @@ import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Maximize2, Minus, Pause, Play, Volume2, VolumeX, X } from 'lucide-react'
 import { loadYouTubeIframeApi, type YouTubePlayer } from '@/lib/youtube-iframe-api'
 
-const VIDEO_ID = 'T8KrE4O0Dlc'
-const VIDEO_URL = `https://www.youtube.com/watch?v=${VIDEO_ID}`
+const DEFAULT_VIDEO_ID = 'T8KrE4O0Dlc'
 
-export function ConsolePlayer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function ConsolePlayer({ open, onClose, videoId = DEFAULT_VIDEO_ID, title = '레퍼런스 음악' }: { open: boolean; onClose: () => void; videoId?: string; title?: string }) {
+  const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
   const playerMount = useRef<HTMLDivElement>(null)
   const player = useRef<YouTubePlayer | null>(null)
   const [status, setStatus] = useState('콘솔 클릭으로 음악 플레이어를 불러왔습니다.')
@@ -32,14 +32,14 @@ export function ConsolePlayer({ open, onClose }: { open: boolean; onClose: () =>
     void loadYouTubeIframeApi().then((api) => {
       if (cancelled || !playerMount.current || player.current) return
       player.current = new api.Player(playerMount.current, {
-        videoId: VIDEO_ID,
+        videoId,
         width: '100%',
         height: '100%',
         playerVars: {
           autoplay: 1,
           controls: 1,
           loop: 1,
-          playlist: VIDEO_ID,
+          playlist: videoId,
           playsinline: 1,
           rel: 0,
           enablejsapi: 1,
@@ -89,7 +89,7 @@ export function ConsolePlayer({ open, onClose }: { open: boolean; onClose: () =>
       setIsPlaying(false)
       window.dispatchEvent(new CustomEvent('mpd-console-player-state', { detail: { active: false } }))
     }
-  }, [open])
+  }, [open, videoId])
 
   useEffect(() => {
     volumeRef.current = volume
@@ -98,7 +98,7 @@ export function ConsolePlayer({ open, onClose }: { open: boolean; onClose: () =>
 
   const togglePlayback = () => {
     if (!player.current || !isReady) {
-      window.open(VIDEO_URL, '_blank', 'noopener,noreferrer')
+      window.open(videoUrl, '_blank', 'noopener,noreferrer')
       return
     }
     if (isPlaying) player.current.pauseVideo()
@@ -135,8 +135,8 @@ export function ConsolePlayer({ open, onClose }: { open: boolean; onClose: () =>
             </div>
             {!minimized && (
               <div className="flex items-center justify-between border-t border-white/10 px-3 py-2 text-xs text-neutral-300">
-                <span>지정하신 YouTube 영상</span>
-                <a href={VIDEO_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-amber-200 hover:text-amber-100">YouTube에서 열기 <ExternalLink className="size-3" /></a>
+                <span>{title}</span>
+                <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-amber-200 hover:text-amber-100">YouTube에서 열기 <ExternalLink className="size-3" /></a>
               </div>
             )}
           </div>
@@ -146,7 +146,7 @@ export function ConsolePlayer({ open, onClose }: { open: boolean; onClose: () =>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-bold tracking-[0.24em] text-amber-300">MPD CONSOLE MONITOR</p>
-                  <h2 className="mt-1 text-base font-semibold">레퍼런스 음악 · 무한 반복</h2>
+                  <h2 className="mt-1 text-base font-semibold">{title} · 무한 반복</h2>
                   <p className="mt-1 text-xs text-neutral-400">{status}</p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -180,7 +180,7 @@ export function ConsolePlayer({ open, onClose }: { open: boolean; onClose: () =>
                   <span className="w-9 text-right text-xs tabular-nums text-neutral-300">{volume}%</span>
                 </div>
               </div>
-              {loadError && <p role="alert" className="rounded-lg border border-rose-400/25 bg-rose-950/35 p-3 text-xs leading-relaxed text-rose-200">{loadError} <a href={VIDEO_URL} target="_blank" rel="noopener noreferrer" className="ml-1 underline">영상 열기</a></p>}
+              {loadError && <p role="alert" className="rounded-lg border border-rose-400/25 bg-rose-950/35 p-3 text-xs leading-relaxed text-rose-200">{loadError} <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="ml-1 underline">영상 열기</a></p>}
               <p className="text-[11px] leading-relaxed text-neutral-500">브라우저 자동재생 정책에 따라 첫 재생 때 재생 버튼을 한 번 더 눌러야 할 수 있습니다. 미터는 재생 상태에 연동된 시각화이며 YouTube 내부 오디오 신호를 직접 측정하지는 않습니다.</p>
             </div>
           )}

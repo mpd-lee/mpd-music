@@ -14,9 +14,10 @@ type InteractiveProps = {
   labelOffset?: [number, number, number]
   position?: [number, number, number]
   rotation?: [number, number, number]
+  noCollision?: boolean
 }
 
-export function Interactive({ label, onActivate, children, labelOffset = [0, 1, 0], position, rotation }: InteractiveProps) {
+export function Interactive({ label, onActivate, children, labelOffset = [0, 1, 0], position, rotation, noCollision = false }: InteractiveProps) {
   const [hovered, setHovered] = useState(false)
   const inner = useRef<Group>(null)
   const pulse = useRef(0)
@@ -31,6 +32,7 @@ export function Interactive({ label, onActivate, children, labelOffset = [0, 1, 
     <group position={position} rotation={rotation}>
       <group
         ref={inner}
+        userData={noCollision ? { mpdNoCollision: true } : undefined}
         onPointerOver={(e) => {
           e.stopPropagation()
           setHovered(true)

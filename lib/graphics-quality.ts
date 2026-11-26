@@ -7,9 +7,9 @@ export const GRAPHICS_PRESETS: Record<GraphicsTier, {
   environment: boolean
 }> = {
   // Start at native-ish resolution for sharp text and edges. The frame guard can reduce DPR only if needed.
-  mobile:   { dpr: 1.0, shadows: false, antialias: true, environment: false },
+  mobile:   { dpr: 0.82, shadows: false, antialias: false, environment: false },
   // Mid-range laptop / integrated graphics.
-  balanced: { dpr: 1.05, shadows: false, antialias: true, environment: false },
+  balanced: { dpr: 0.98, shadows: false, antialias: true, environment: false },
   // Desktop workstation.
   high:     { dpr: 1.2, shadows: true, antialias: true, environment: true },
 }
