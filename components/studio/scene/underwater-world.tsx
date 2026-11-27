@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -283,11 +283,10 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
 
-  // The V32 reef photograph is retained. Only the outer 4.5% stretched photo
-  // margins are cropped; no horizontal neighbour averaging, blur, or added ray
-  // is used. Those broad pixel blends caused the vertical smeared column seen in
-  // the V33/V34 screenshots.
-  const crop = Math.round(sourceWidth * 0.075)
+  // Keep the previously preferred V32 reef photograph. Crop only the stretched
+  // outer side strips (9.5% per side), where the source image itself has repeated
+  // pixels. No vertical blur, centre mask, ray overlay or broad seam averaging.
+  const crop = Math.round(sourceWidth * 0.095)
   ctx.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
   const frame = ctx.getImageData(0, 0, width, height)
   const pixels = frame.data
@@ -295,7 +294,7 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
   // Do not apply a local vertical light-shaft mask: its narrow dark falloff
   // created the persistent blurred-looking stripe. Keep the original natural
   // light and preserve all reef/sand pixel detail.
-  // Clip only extreme cyan highlights after the shaft attenuation; never blur.
+  // Gently roll off only clipped cyan highlights; preserve all mid-tone reef detail.
   for (let y = 0; y < Math.floor(height * 0.58); y += 1) {
     for (let x = 0; x < width; x += 1) {
       const i = (y * width + x) * 4
@@ -309,13 +308,11 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
       pixels[i + 2] = Math.round(b * gain)
     }
   }
-  // Restore opaque alpha; the panorama itself must never contain a translucent
-  // vertical band that reveals the scene clear colour underneath.
+  // Restore opaque alpha; the panorama must not reveal the scene background through it.
   for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255
   ctx.putImageData(frame, 0, 0)
-  // Close only the equirectangular left/right wrap seam. This narrow edge pass
-  // cannot affect the middle of the image where the previous vertical smear lived.
-  blendCanvasSeams(ctx, width, height, Math.max(8, Math.floor(width * 0.008)), false)
+  // Close only a few pixels at the equirectangular left/right wrap seam.
+  blendCanvasSeams(ctx, width, height, Math.max(8, Math.floor(width * 0.009)), false)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -358,8 +355,9 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
     texture.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 10 : 16
     texture.needsUpdate = true
     scene.background = texture
-    // Aim the default over-the-shoulder forward view at the cave/reef centre,
-    // rather than the smeared left/right edge of the equirectangular photograph.
+    // Keep the equirectangular wrap seam at the rear of the initial forward view.
+    // A half-turn placed the left/right wrap seam directly in front of the diver,
+    // creating the persistent vertical blurred stripe. No blur or ray overlay is added.
     scene.backgroundRotation.set(0, 0, 0)
     scene.backgroundIntensity = quality === 'mobile' ? 0.74 : 0.76
     return () => {

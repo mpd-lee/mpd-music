@@ -1,14 +1,14 @@
-﻿'use client'
+'use client'
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrowDown, ArrowUp, Joystick } from 'lucide-react'
 
 type Vector = { x: number; z: number; y?: number }
-type Props = { onMove: (value: Vector) => void; underwater?: boolean }
+type Props = { onMove: (value: Vector) => void; underwater?: boolean; moveVectorRef?: MutableRefObject<Vector> }
 
 const ZERO: Vector = { x: 0, z: 0 }
 
-export function PlayerControls({ onMove, underwater = false }: Props) {
+export function PlayerControls({ onMove, underwater = false, moveVectorRef }: Props) {
   const baseRef = useRef<HTMLDivElement>(null)
   const keys = useRef(new Set<string>())
   const stick = useRef<Vector>(ZERO)
@@ -36,11 +36,12 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     // Publish every control transition. Do not suppress small but intentional
     // joystick movements; the Avatar applies its own 3D movement dead-zone.
     lastPublished.current = next
+    // Write directly to the same ref consumed by Avatar's render loop. This is
+    // intentionally synchronous so pointer capture, touch and held buttons do
+    // not depend on a React state render or a secondary CustomEvent listener.
+    if (moveVectorRef) moveVectorRef.current = { x: next.x, z: next.z, y: next.y ?? 0 }
     onMove(next)
-    if (underwater && typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('mpd-underwater-input', { detail: next }))
-    }
-  }, [onMove, underwater])
+  }, [onMove, underwater, moveVectorRef])
 
   useEffect(() => {
     // A pool-to-underwater transition must not inherit a stale joystick/key press.
@@ -48,6 +49,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     stick.current = ZERO
     vertical.current = 0
     lastPublished.current = ZERO
+    if (moveVectorRef) moveVectorRef.current = { x: 0, z: 0, y: 0 }
     activePointer.current = null
     setThumb({ x: 0, y: 0 })
     onMove(ZERO)
@@ -98,9 +100,10 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', blur)
+      if (moveVectorRef) moveVectorRef.current = { x: 0, z: 0, y: 0 }
       onMove(ZERO)
     }
-  }, [onMove, publish, underwater])
+  }, [onMove, publish, underwater, moveVectorRef])
 
   const updateStick = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = baseRef.current?.getBoundingClientRect()

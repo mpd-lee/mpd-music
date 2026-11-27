@@ -1,0 +1,20 @@
+﻿MPD MUSIC STUDIO WORLD V41 PATCH MANIFEST
+========================================
+
+Modified source files:
+- components/studio/player-controls.tsx
+- components/studio/scene/avatar.tsx
+- components/studio/scene/studio-scene.tsx
+- components/studio/scene/outdoor.tsx
+- components/studio/scene/underwater-world.tsx
+
+Added/replaced sky assets:
+- public/images/mpd-sky-panorama-v41.webp
+- public/images/mpd-sky-panorama-v41-mobile.webp
+
+Reused existing underwater assets:
+- public/images/mpd-underwater-natural-v32.webp
+- public/images/mpd-underwater-natural-v32-mobile.webp
+
+UI layout files are intentionally excluded.
+Secrets and environment files are intentionally excluded.

@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { Html, RoundedBox, useTexture } from '@react-three/drei'
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
@@ -141,12 +141,12 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
 }
 
 function SkyCanopy({ quality }: { quality: GraphicsTier }) {
-  // V39 uses a full-coverage 2:1 cloud panorama. The previous V32 map had a large
-  // low-cloud-free blue band through its equatorial centre; equirectangular
-  // projection turned that into the wide empty sky opening above the forest.
+  // Use the V41 panorama remapped from the existing V40 cloud image. Its broad empty
+  // lower-blue band is cropped out before equirectangular mapping, so the sky remains
+  // cloud-detailed above the forest. Keep a neutral vertical orientation.
   const texture = useTexture(quality === 'mobile'
-    ? '/images/mpd-sky-panorama-v39-mobile.webp'
-    : '/images/mpd-sky-panorama-v39.webp')
+    ? '/images/mpd-sky-panorama-v41-mobile.webp'
+    : '/images/mpd-sky-panorama-v41.webp')
   const scene = useThree((state) => state.scene)
   useLayoutEffect(() => {
     const previousBackground = scene.background
