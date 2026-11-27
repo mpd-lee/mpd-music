@@ -1202,45 +1202,74 @@ canvas {
 }
 
 
-/* V33: give the mobile diver controls their own clear lower corners. */
+/* MPD WORLD V33: reliable mobile dive-control hit areas and clear separation. */
 @media (pointer: coarse), (max-width: 820px) {
-  .mpd-mobile-controls {
-    z-index: 62 !important;
-    pointer-events: none !important;
-  }
-  .mpd-joystick-base {
-    left: max(13px, env(safe-area-inset-left)) !important;
-    bottom: calc(16px + env(safe-area-inset-bottom)) !important;
-    width: clamp(76px, 19vw, 90px) !important;
-    height: clamp(76px, 19vw, 90px) !important;
-    pointer-events: auto !important;
-  }
+  .mpd-mobile-controls { z-index: 70 !important; pointer-events: none !important; }
+  .mpd-joystick-base { pointer-events: auto !important; touch-action: none !important; }
   .mpd-dive-axis {
     right: max(12px, env(safe-area-inset-right)) !important;
-    bottom: calc(118px + env(safe-area-inset-bottom)) !important;
-    z-index: 63 !important;
+    bottom: calc(150px + env(safe-area-inset-bottom)) !important;
+    z-index: 72 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 7px !important;
     pointer-events: auto !important;
+    touch-action: none !important;
   }
-  .mpd-underwater-hud {
-    top: max(66px, calc(env(safe-area-inset-top) + 60px)) !important;
-    z-index: 31 !important;
+  .mpd-dive-axis button {
+    min-width: 84px !important;
+    min-height: 42px !important;
+    font-size: 10px !important;
+    touch-action: none !important;
   }
+  .mpd-music-player { z-index: 44 !important; }
 }
 @media (pointer: coarse) and (orientation: landscape) {
-  .mpd-joystick-base { bottom: calc(10px + env(safe-area-inset-bottom)) !important; }
   .mpd-dive-axis { bottom: calc(92px + env(safe-area-inset-bottom)) !important; }
 }
 
 
-/* V33: keep touch gestures captured by the diver controls, not the browser page. */
+/* MPD WORLD V33 final touch layout: fixed hit areas, safe-area aware, no HUD overlap. */
 @media (pointer: coarse), (max-width: 820px) {
-  .mpd-mobile-controls,
-  .mpd-joystick-base,
-  .mpd-dive-axis,
-  .mpd-dive-axis button {
-    touch-action: none !important;
-    -webkit-user-select: none !important;
-    user-select: none !important;
+  .mpd-mobile-controls { position: fixed !important; inset: 0 !important; z-index: 80 !important; pointer-events: none !important; }
+  .mpd-joystick-base {
+    position: fixed !important; left: max(14px, env(safe-area-inset-left)) !important;
+    bottom: calc(18px + env(safe-area-inset-bottom)) !important;
+    width: clamp(82px, 22vw, 100px) !important; height: clamp(82px, 22vw, 100px) !important;
+    z-index: 82 !important; pointer-events: auto !important; touch-action: none !important;
   }
-  .mpd-joystick-base { overscroll-behavior: contain !important; }
+  .mpd-dive-axis {
+    position: fixed !important; right: max(14px, env(safe-area-inset-right)) !important;
+    bottom: calc(142px + env(safe-area-inset-bottom)) !important; z-index: 83 !important;
+    display: flex !important; flex-direction: column !important; gap: 7px !important;
+    width: max-content !important; pointer-events: auto !important; transform: none !important;
+  }
+  .mpd-dive-axis button { min-width: 88px !important; min-height: 44px !important; font-size: 10px !important; touch-action: none !important; }
+  .mpd-music-player { z-index: 60 !important; bottom: max(8px, env(safe-area-inset-bottom)) !important; right: max(8px, env(safe-area-inset-right)) !important; }
+  .mpd-underwater-hud { top: max(74px, calc(env(safe-area-inset-top) + 68px)) !important; z-index: 54 !important; pointer-events: none !important; }
+  .mpd-surface-button { pointer-events: auto !important; min-height: 36px !important; }
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  .mpd-joystick-base { width: 76px !important; height: 76px !important; bottom: calc(8px + env(safe-area-inset-bottom)) !important; }
+  .mpd-dive-axis { bottom: calc(12px + env(safe-area-inset-bottom)) !important; right: max(180px, calc(env(safe-area-inset-right) + 170px)) !important; flex-direction: row !important; }
+  .mpd-dive-axis button { min-width: 76px !important; min-height: 38px !important; }
+}
+
+
+/* Desktop scuba axis buttons, separate from the bottom-right music player. */
+.mpd-desktop-dive-axis {
+  position: fixed; right: 18px; bottom: 124px; z-index: 48;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: auto;
+  padding: 8px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 12px;
+  background: rgb(5 22 34 / 82%); color: #e5fbff; backdrop-filter: blur(10px);
+}
+.mpd-desktop-dive-axis button {
+  display: flex; min-width: 108px; min-height: 44px; align-items: center; justify-content: center;
+  gap: 8px; border: 1px solid rgb(255 255 255 / 14%); border-radius: 9px;
+  background: rgb(255 255 255 / 9%); color: inherit; font-size: 12px; font-weight: 700;
+  touch-action: none; user-select: none;
+}
+.mpd-desktop-dive-axis button:active { background: rgb(114 220 240 / 22%); }
+@media (pointer: coarse), (max-width: 820px) {
+  .mpd-desktop-dive-axis { display: none !important; }
 }

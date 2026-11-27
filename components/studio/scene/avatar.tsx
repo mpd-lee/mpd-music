@@ -14,9 +14,9 @@ type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
 export const AVATAR_START = new THREE.Vector3(0, 0, 4.2)
 const SPEED = 4.25
-const UNDERWATER_INPUT_SPEED = 82.0
-const UNDERWATER_CLICK_SPEED = 96.0
-const UNDERWATER_VERTICAL_SPEED = 72.0
+const UNDERWATER_INPUT_SPEED = 48.0
+const UNDERWATER_CLICK_SPEED = 64.0
+const UNDERWATER_VERTICAL_SPEED = 30.0
 type MoveVector = { x: number; z: number; y?: number }
 const SKIN = '#f3cba5'
 const HOODIE = '#2f4a5a'
@@ -105,13 +105,13 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
     // Keep the avatar in a natural over-the-shoulder third-person frame.
     // The camera starts behind the avatar, not above its head, on land and underwater.
-    const distance = underwaterMode ? (coarse ? 18.5 : 16.5) : (coarse ? 9.8 : 8.4)
+    const distance = underwaterMode ? (coarse ? 25.0 : 22.0) : (coarse ? 9.8 : 8.4)
     const targetHeight = underwaterMode ? 1.24 : 1.18
-    const cameraHeight = underwaterMode ? (coarse ? 3.0 : 2.7) : 2.82
+    const cameraHeight = underwaterMode ? (coarse ? 5.0 : 4.4) : 2.82
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
       // Wider underwater lens shows more of the reef around the diver on portrait phones.
-      perspective.fov = underwaterMode ? (coarse ? 86 : 80) : (coarse ? 52 : 48)
+      perspective.fov = underwaterMode ? (coarse ? 86 : 82) : (coarse ? 52 : 48)
       perspective.updateProjectionMatrix()
     }
     controls.target.set(pos.x, pos.y + targetHeight, pos.z)

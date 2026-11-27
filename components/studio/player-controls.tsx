@@ -121,9 +121,15 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     <>
       <div className="mpd-desktop-move-hint" aria-hidden="true">
         {underwater
-          ? <><span>W A S D</span> 수평 수영 · <span>↑ / Space</span> 상승 · <span>↓ / Left Shift</span> 하강 · 클릭/터치로 목적지 지정 · 화면 위/아래로 깊이 이동</>
+          ? <><span>W A S D</span> 수평 수영 · <span>↑ / Space</span> 상승 · <span>↓ / Left Shift</span> 하강 · 화면 클릭으로 목적지 이동</>
           : <><span>W A S D</span> 또는 방향키로 이동 · 마우스로 바닥을 누르면 해당 위치로 이동</>}
       </div>
+      {underwater && (
+        <div className="mpd-desktop-dive-axis" aria-label="PC 수중 상승 및 하강">
+          <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)} style={{ touchAction: 'none', userSelect: 'none' }}><ArrowUp size={15} /> 상승</button>
+          <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)} style={{ touchAction: 'none', userSelect: 'none' }}><ArrowDown size={15} /> 하강</button>
+        </div>
+      )}
       <div className="mpd-mobile-controls" aria-label="모바일 이동 조이스틱">
         <div
           ref={baseRef}
@@ -138,19 +144,19 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
           onPointerUp={stopStick}
           onPointerCancel={stopStick}
           onLostPointerCapture={(event) => { if (activePointer.current === event.pointerId) stopStick(event) }}
-          title={underwater ? '손가락으로 밀어 수평 수영 · 탭으로 목적지 이동' : '손가락으로 밀어 이동'}
-          onContextMenu={(event) => event.preventDefault()}
+          title="손가락으로 밀어 이동"
+          style={{ touchAction: 'none', WebkitUserSelect: 'none', userSelect: 'none', WebkitTapHighlightColor: 'transparent' }}
         >
           <span className="mpd-joystick-ring" />
           <span className="mpd-joystick-thumb" style={{ transform: `translate(${thumb.x}px, ${thumb.y}px)` }}>
             <Joystick size={22} strokeWidth={1.8} />
           </span>
-          <span className="mpd-joystick-caption">{underwater ? 'SWIM' : 'MOVE'}</span>
+          <span className="mpd-joystick-caption">MOVE</span>
         </div>
         {underwater && (
           <div className="mpd-dive-axis" aria-label="수중 위아래 이동">
-            <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowUp size={13} /> 상승</button>
-            <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowDown size={13} /> 하강</button>
+            <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)} style={{ touchAction: 'none', userSelect: 'none', WebkitTapHighlightColor: 'transparent' }}><ArrowUp size={13} /> 상승</button>
+            <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)} style={{ touchAction: 'none', userSelect: 'none', WebkitTapHighlightColor: 'transparent' }}><ArrowDown size={13} /> 하강</button>
             <small>두 손가락: 시야 줌</small>
           </div>
         )}
