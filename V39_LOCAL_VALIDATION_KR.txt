@@ -1,0 +1,25 @@
+V39 사전 검증 기록
+
+TypeScript transpileModule 구문 검사 통과:
+- components/studio/scene/studio-scene.tsx: PASS
+- components/studio/scene/avatar.tsx: PASS
+- components/studio/scene/outdoor.tsx: PASS
+- components/studio/scene/underwater-world.tsx: PASS
+
+하늘 자산 확인:
+- mpd-sky-panorama-v39.webp: 2048 x 1024, 2:1 equirectangular
+- mpd-sky-panorama-v39-mobile.webp: 1024 x 512, 2:1 equirectangular
+
+수중 입력 경로 정적 확인:
+- PlayerControls custom event mpd-underwater-input 직접 수신
+- Keyboard WASD/방향키/Space/Shift fallback listener
+- click/touch pointer capture 기반 3D waypoint
+- Avatar root ref를 UnderwaterMovementDriver와 연결
+- 카메라 및 OrbitControls target을 캐릭터 이동량만큼 함께 이동
+
+주의: 이 실행 환경에는 사용자의 package.json에 맞는 node_modules와 .env.local이 없으므로 전체 TypeScript typecheck, Next.js production build, 실제 브라우저/휴대폰 조작 테스트는 수행하지 않았습니다. 설치 스크립트가 사용자 프로젝트에서 전체 검사 및 빌드를 수행합니다.
+
+UI 레이아웃 보존:
+- app/globals.css 미포함
+- components/studio/chat-panel.tsx 미포함
+- components/studio/studio-app.tsx 미포함

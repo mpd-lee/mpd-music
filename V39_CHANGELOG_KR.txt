@@ -1,0 +1,29 @@
+MPD MUSIC STUDIO WORLD V39 CHANGELOG
+
+목표
+- 하늘 equirectangular 중앙의 넓은 단색 파란 영역을 구름이 연속적으로 분포된 2:1 파노라마로 교체
+- 수중 중앙에 인공적으로 생성되는 수직 번짐/감쇠 마스크 제거 상태 유지
+- 수중 이동 입력을 PlayerControls ref + custom event + 독립 키보드 fallback의 이중 경로로 연결
+- 클릭/터치 목적지 수영, 조이스틱/키보드 연속 수영, 상승/하강 동작을 같은 3D 이동 드라이버에서 처리
+- 수중 FOV를 실외 시야각에 가깝게 하고 아바타 배율을 보정하여 줌 시 배경과 캐릭터가 함께 확대/축소되도록 함
+- 수중 근거리 산호 지형을 약간 축소해 원근감 강화
+
+변경 파일
+- components/studio/scene/studio-scene.tsx
+- components/studio/scene/avatar.tsx
+- components/studio/scene/outdoor.tsx
+- components/studio/scene/underwater-world.tsx
+- public/images/mpd-sky-panorama-v39.webp
+- public/images/mpd-sky-panorama-v39-mobile.webp
+
+UI 보존
+- app/globals.css 및 채팅/방명록/플레이어/SCUBA 패널 UI 크기·위치·배열은 수정하지 않음
+- .env / .env.local은 읽거나 덮어쓰지 않음
+
+수중 이동 영역
+- X: -50,000m ~ +50,000m
+- Z: -50,000m ~ +50,000m
+- Y: -8,000m ~ 수면 직하
+
+주의
+- 이 변경 기록은 코드 변경 내용이며, 실제 장치의 포인터/터치 조작과 Production 빌드 성공은 설치 스크립트 및 배포 후 테스트로 확인해야 함.

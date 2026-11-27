@@ -140,117 +140,14 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   return blended
 }
 
-function createCloudFilledSkyTexture(skySource: THREE.Texture, coastSource: THREE.Texture, quality: GraphicsTier) {
-  if (typeof document === 'undefined') return skySource
-  const skyImage = skySource.image as HTMLImageElement
-  const coastImage = coastSource.image as HTMLImageElement
-  const skyW = skyImage?.naturalWidth || skyImage?.width || 0
-  const skyH = skyImage?.naturalHeight || skyImage?.height || 0
-  const coastW = coastImage?.naturalWidth || coastImage?.width || 0
-  const coastH = coastImage?.naturalHeight || coastImage?.height || 0
-  if (!skyW || !skyH || !coastW || !coastH) return skySource
-
-  const width = quality === 'mobile' ? 1024 : 2048
-  const height = width / 2
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return skySource
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = 'high'
-  ctx.drawImage(skyImage, 0, 0, skyW, skyH, 0, 0, width, height)
-
-  // The previous version sampled only the centre 60% and a narrow band below
-  // the top edge. That mostly sampled blue sky, leaving the zenith as a larger
-  // featureless blue patch. Sample the full photographic sky instead, then keep
-  // only neutral/white cloud pixels. Green tree crowns, brown branches and blue
-  // sky are excluded, so this cannot paste a second horizon or a fog-coloured disk.
-  const sourceX = 0
-  const sourceW = coastW
-  const sourceY = 0
-  const sourceH = Math.round(coastH * 0.54)
-  const overlayHeight = Math.round(height * 0.92)
-  const cloudCanvas = document.createElement('canvas')
-  cloudCanvas.width = width
-  cloudCanvas.height = overlayHeight
-  const cloudCtx = cloudCanvas.getContext('2d', { willReadFrequently: true })
-  if (!cloudCtx) return skySource
-  cloudCtx.imageSmoothingEnabled = true
-  cloudCtx.imageSmoothingQuality = 'high'
-  cloudCtx.drawImage(coastImage, sourceX, sourceY, sourceW, sourceH, 0, 0, width, overlayHeight)
-
-  const cloudData = cloudCtx.getImageData(0, 0, width, overlayHeight).data
-  const base = ctx.getImageData(0, 0, width, height)
-  const pixels = base.data
-  const smooth = (a: number, b: number, x: number) => {
-    const t = THREE.MathUtils.clamp((x - a) / Math.max(0.0001, b - a), 0, 1)
-    return t * t * (3 - 2 * t)
-  }
-
-  for (let y = 0; y < overlayHeight; y += 1) {
-    const vertical = 0.86 * (1 - smooth(overlayHeight * 0.86, overlayHeight, y))
-    for (let x = 0; x < width; x += 1) {
-      const i = (y * width + x) * 4
-      const r = cloudData[i], g = cloudData[i + 1], b = cloudData[i + 2]
-      const maximum = Math.max(r, g, b)
-      const minimum = Math.min(r, g, b)
-      const luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
-      const chroma = maximum - minimum
-      const greenLeaf = g > r * 1.055 && g > b * 1.045 && (g - r) > 9
-      const warmLeafOrBark = r > g * 1.16 && r > b * 1.19 && (r - b) > 18
-      const horizontalEdge = smooth(0, width * 0.035, x) * (1 - smooth(width * 0.965, width, x))
-      // Capture wispy cirrus and bright cumulus; reject high-chroma sky and foliage.
-      const cloudMask = smooth(112, 188, luminance) * (1 - smooth(24, 116, chroma) * 0.98)
-      const alpha = cloudMask * vertical * horizontalEdge * (greenLeaf || warmLeafOrBark ? 0 : 0.88)
-      if (alpha <= 0.002) continue
-      pixels[i] = Math.round(pixels[i] * (1 - alpha) + r * alpha)
-      pixels[i + 1] = Math.round(pixels[i + 1] * (1 - alpha) + g * alpha)
-      pixels[i + 2] = Math.round(pixels[i + 2] * (1 - alpha) + b * alpha)
-      pixels[i + 3] = 255
-    }
-  }
-
-  // Keep source zenith pixels. Do not add a flat pole cap or alpha transparency:
-  // both made the overhead view look like a round opening.
-  const seamBand = Math.max(6, Math.floor(width * 0.006))
-  for (let y = 0; y < height; y += 1) {
-    for (let x = 0; x < seamBand; x += 1) {
-      const t = (1 - x / seamBand) * 0.14
-      const left = (y * width + x) * 4
-      const right = (y * width + width - seamBand + x) * 4
-      for (let c = 0; c < 3; c += 1) {
-        const average = (pixels[left + c] + pixels[right + c]) * 0.5
-        pixels[left + c] = Math.round(pixels[left + c] * (1 - t) + average * t)
-        pixels[right + c] = Math.round(pixels[right + c] * (1 - t) + average * t)
-      }
-    }
-  }
-  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255
-  ctx.putImageData(base, 0, 0)
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  texture.mapping = THREE.EquirectangularReflectionMapping
-  texture.wrapS = THREE.RepeatWrapping
-  texture.wrapT = THREE.ClampToEdgeWrapping
-  texture.minFilter = THREE.LinearMipmapLinearFilter
-  texture.magFilter = THREE.LinearFilter
-  texture.generateMipmaps = true
-  texture.anisotropy = quality === 'mobile' ? 2 : 12
-  texture.needsUpdate = true
-  return texture
-}
-
 function SkyCanopy({ quality }: { quality: GraphicsTier }) {
-  const sources = useTexture([
-    quality === 'mobile' ? '/images/mpd-sky-panorama-v32-mobile.webp' : '/images/mpd-sky-panorama-v32.webp',
-    quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp',
-  ]) as THREE.Texture[]
-  const [skySource, coastSource] = sources
-  const texture = useMemo(() => createCloudFilledSkyTexture(skySource, coastSource, quality), [skySource, coastSource, quality])
+  // V39 uses a full-coverage 2:1 cloud panorama. The previous V32 map had a large
+  // low-cloud-free blue band through its equatorial centre; equirectangular
+  // projection turned that into the wide empty sky opening above the forest.
+  const texture = useTexture(quality === 'mobile'
+    ? '/images/mpd-sky-panorama-v39-mobile.webp'
+    : '/images/mpd-sky-panorama-v39.webp')
   const scene = useThree((state) => state.scene)
-  useEffect(() => () => { if (texture !== skySource) texture.dispose() }, [texture, skySource])
   useLayoutEffect(() => {
     const previousBackground = scene.background
     const previousRotation = scene.backgroundRotation.clone()

@@ -292,33 +292,9 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
   const frame = ctx.getImageData(0, 0, width, height)
   const pixels = frame.data
 
-  // Reduce the photo's baked-in central sunshaft without blur or lateral pixel
-  // averaging. The attenuation is a smooth, location-aware luminance roll-off;
-  // it preserves every coral/sand edge and does not create a vertical smear.
-  const smoothstep = (a: number, b: number, value: number) => {
-    const t = THREE.MathUtils.clamp((value - a) / Math.max(0.0001, b - a), 0, 1)
-    return t * t * (3 - 2 * t)
-  }
-  for (let y = 0; y < height; y += 1) {
-    const v = y / height
-    const verticalMask = smoothstep(0.055, 0.22, v) * (1 - smoothstep(0.48, 0.66, v))
-    if (verticalMask <= 0.001) continue
-    for (let x = 0; x < width; x += 1) {
-      const i = (y * width + x) * 4
-      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2]
-      const luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
-      if (luminance < 72 || b < r * 1.18 || g < r * 1.10) continue
-      const u = x / width
-      const dx = (u - 0.405) / 0.155
-      const horizontalMask = Math.exp(-dx * dx * 1.45)
-      const brightMask = smoothstep(78, 165, luminance)
-      const attenuation = 0.68 * verticalMask * horizontalMask * brightMask
-      const gain = 1 - attenuation
-      pixels[i] = Math.round(r * gain)
-      pixels[i + 1] = Math.round(g * gain)
-      pixels[i + 2] = Math.round(b * gain)
-    }
-  }
+  // Do not apply a local vertical light-shaft mask: its narrow dark falloff
+  // created the persistent blurred-looking stripe. Keep the original natural
+  // light and preserve all reef/sand pixel detail.
   // Clip only extreme cyan highlights after the shaft attenuation; never blur.
   for (let y = 0; y < Math.floor(height * 0.58); y += 1) {
     for (let x = 0; x < width; x += 1) {
@@ -326,7 +302,7 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
       const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2]
       const luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
       if (luminance < 198 || b < r * 1.12 || g < r * 1.08) continue
-      const rolled = 198 + (luminance - 198) * 0.48
+      const rolled = 194 + (luminance - 194) * 0.52
       const gain = rolled / Math.max(1, luminance)
       pixels[i] = Math.round(r * gain)
       pixels[i + 1] = Math.round(g * gain)
@@ -1223,7 +1199,7 @@ export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
       {/* Natural sunlight is already baked into the 360° photo. Avoid synthetic cones that read as blurry vertical bands. */}
 
       <UnderwaterDome quality={quality} />
-      <group scale={1.02}>
+      <group scale={0.96}>
       {Array.from({ length: rockCount }, (_, index) => (
         <ReefEscarpmentRock key={`reef-rock-${index}`} index={index} quality={quality} count={rockCount} baseY={-16.2} />
       ))}
@@ -1253,7 +1229,7 @@ export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
       {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} worldRootRef={worldRoot} quality={quality} />}
 
       {/* Dispersed coral heads at different depths give the diver real near-field landmarks. */}
-      <group scale={1.02}>
+      <group scale={0.96}>
         {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
         {kelpPositions.map((position, i) => <Kelp key={`near-kelp-${i}`} position={position} seed={i * 7.7 + 91} />)}
       </group>

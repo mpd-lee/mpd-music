@@ -1,0 +1,24 @@
+MPD MUSIC STUDIO WORLD V39 PATCH MANIFEST
+
+Patch root: MPD_MUSIC_STUDIO_WORLD_V39_PATCH
+Apply script: APPLY_MPD_MUSIC_STUDIO_WORLD_V39_FINAL.ps1
+Target project: C:\Users\<user>\MPD_Music_Studio_Git
+Expected branch: main
+Expected origin: https://github.com/mpd-lee/mpd-music.git
+
+Patch payload:
+1. components/studio/scene/studio-scene.tsx
+2. components/studio/scene/avatar.tsx
+3. components/studio/scene/outdoor.tsx
+4. components/studio/scene/underwater-world.tsx
+5. public/images/mpd-sky-panorama-v39.webp
+6. public/images/mpd-sky-panorama-v39-mobile.webp
+7. V39_CHANGELOG_KR.txt
+8. V39_PATCH_MANIFEST.txt
+9. V39_LOCAL_VALIDATION_KR.txt
+
+Intentionally excluded:
+- app/globals.css
+- components/studio/chat-panel.tsx
+- components/studio/studio-app.tsx
+- .env, .env.local, .git, node_modules, .next, .vercel
