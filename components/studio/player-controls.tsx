@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrowDown, ArrowUp, Joystick } from 'lucide-react'
@@ -23,10 +23,10 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   const [thumb, setThumb] = useState({ x: 0, y: 0 })
 
   const publish = useCallback(() => {
-    const keyX = (keys.current.has('d') || keys.current.has('arrowright') ? 1 : 0)
-      - (keys.current.has('a') || keys.current.has('arrowleft') ? 1 : 0)
-    const keyZ = (keys.current.has('s') || (!underwater && keys.current.has('arrowdown')) ? 1 : 0)
-      - (keys.current.has('w') || (!underwater && keys.current.has('arrowup')) ? 1 : 0)
+    const keyX = (keys.current.has('KeyD') || keys.current.has('ArrowRight') ? 1 : 0)
+      - (keys.current.has('KeyA') || keys.current.has('ArrowLeft') ? 1 : 0)
+    const keyZ = (keys.current.has('KeyS') || (!underwater && keys.current.has('ArrowDown')) ? 1 : 0)
+      - (keys.current.has('KeyW') || (!underwater && keys.current.has('ArrowUp')) ? 1 : 0)
     let x = keyX + stick.current.x
     let z = keyZ + stick.current.z
     const length = Math.hypot(x, z)
@@ -37,6 +37,9 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     // joystick movements; the Avatar applies its own 3D movement dead-zone.
     lastPublished.current = next
     onMove(next)
+    if (underwater && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mpd-underwater-input', { detail: next }))
+    }
   }, [onMove, underwater])
 
   useEffect(() => {
@@ -48,33 +51,44 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     activePointer.current = null
     setThumb({ x: 0, y: 0 })
     onMove(ZERO)
-    const movementKeys = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'])
+    const movementCodes = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
     const isTyping = (target: EventTarget | null) => {
       const element = target as HTMLElement | null
       return Boolean(element && (element.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)))
     }
     const down = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase()
+      const code = event.code
       if (isTyping(event.target) || document.body.dataset.mpdPianoOpen === 'true') return
-      if (underwater && (event.code === 'Space' || event.code === 'ShiftLeft' || key === 'arrowup' || key === 'arrowdown')) {
+      if (underwater && (code === 'Space' || code === 'ShiftLeft' || code === 'ArrowUp' || code === 'ArrowDown')) {
         event.preventDefault()
-        vertical.current = (event.code === 'Space' || key === 'arrowup') ? 1 : -1
+        vertical.current = (code === 'Space' || code === 'ArrowUp') ? 1 : -1
         publish()
         return
       }
-      if (!movementKeys.has(key)) return
+      if (!movementCodes.has(code)) return
       event.preventDefault()
-      keys.current.add(key)
+      keys.current.add(code)
       publish()
     }
     const up = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase()
-      if (underwater && (event.code === 'Space' || event.code === 'ShiftLeft' || key === 'arrowup' || key === 'arrowdown')) { vertical.current = 0; keys.current.delete(key); publish(); return }
-      if (!movementKeys.has(key)) return
-      keys.current.delete(key)
+      const code = event.code
+      if (underwater && (code === 'Space' || code === 'ShiftLeft' || code === 'ArrowUp' || code === 'ArrowDown')) {
+        vertical.current = 0
+        keys.current.delete(code)
+        publish()
+        return
+      }
+      if (!movementCodes.has(code)) return
+      keys.current.delete(code)
       publish()
     }
-    const blur = () => { keys.current.clear(); stick.current = ZERO; vertical.current = 0; setThumb({ x: 0, y: 0 }); publish() }
+    const blur = () => {
+      keys.current.clear()
+      stick.current = ZERO
+      vertical.current = 0
+      setThumb({ x: 0, y: 0 })
+      publish()
+    }
     window.addEventListener('keydown', down, { passive: false })
     window.addEventListener('keyup', up)
     window.addEventListener('blur', blur)
@@ -117,7 +131,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
         setThumb({ x: 0, y: 0 })
         publish()
         joystickReleaseTimer.current = null
-      }, Math.max(500, 900 - (performance.now() - joystickPressStartedAt.current)))
+      }, Math.max(700, 1250 - (performance.now() - joystickPressStartedAt.current)))
     } else {
       stick.current = ZERO
       setThumb({ x: 0, y: 0 })

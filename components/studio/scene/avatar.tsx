@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { Html } from '@react-three/drei'
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
@@ -14,10 +14,10 @@ type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
 export const AVATAR_START = new THREE.Vector3(0, 0, 4.2)
 const SPEED = 4.25
-const UNDERWATER_INPUT_SPEED = 18.0
-const UNDERWATER_CLICK_SPEED = 32.0
-const UNDERWATER_ASCENT_SPEED = 7.5
-const UNDERWATER_DESCENT_SPEED = 9.0
+const UNDERWATER_INPUT_SPEED = 42.0
+const UNDERWATER_CLICK_SPEED = 84.0
+const UNDERWATER_ASCENT_SPEED = 25.0
+const UNDERWATER_DESCENT_SPEED = 30.0
 type MoveVector = { x: number; z: number; y?: number }
 const SKIN = '#f3cba5'
 const HOODIE = '#2f4a5a'
@@ -105,12 +105,12 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const facing = root.current.rotation.y
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
     // Keep the diver at the same third-person scale as the outdoor avatar.
-    const distance = coarse ? 9.8 : 8.4
+    const distance = coarse ? 9.2 : 9.0
     const targetHeight = 1.18
     const cameraHeight = 2.82
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
-      perspective.fov = coarse ? 56 : 54
+      perspective.fov = coarse ? 52 : 50
       perspective.updateProjectionMatrix()
     }
     const targetPoint = new THREE.Vector3(pos.x, pos.y + targetHeight, pos.z)
@@ -225,6 +225,29 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     collisionDirtyRef.current = true
   }, [underwaterMode, scene])
 
+  useEffect(() => {
+    const receiveUnderwaterInput = (event: Event) => {
+      if (!underwaterMode) return
+      const detail = (event as CustomEvent<MoveVector>).detail
+      if (!detail) return
+      moveVectorRef.current = {
+        x: THREE.MathUtils.clamp(Number(detail.x) || 0, -1, 1),
+        z: THREE.MathUtils.clamp(Number(detail.z) || 0, -1, 1),
+        y: THREE.MathUtils.clamp(Number(detail.y) || 0, -1, 1),
+      }
+      const active = Math.hypot(moveVectorRef.current.x, moveVectorRef.current.z) > 0.012
+        || Math.abs(moveVectorRef.current.y ?? 0) > 0.012
+      if (active) {
+        arrived.current = true
+        route.current = []
+        sitting.current = false
+        lying.current = false
+      }
+    }
+    window.addEventListener('mpd-underwater-input', receiveUnderwaterInput)
+    return () => window.removeEventListener('mpd-underwater-input', receiveUnderwaterInput)
+  }, [underwaterMode, moveVectorRef])
+
   useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
     const g = root.current
@@ -239,6 +262,10 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const input = moveVectorRef.current
     const inputLength = Math.hypot(input.x, input.z)
 
+    if (underwaterMode && (inputLength > 0.012 || Math.abs(input.y ?? 0) > 0.012)) {
+      arrived.current = true
+      route.current = []
+    }
     if (underwaterMode && Math.abs(input.y ?? 0) > 0.012) {
       arrived.current = true
       const verticalInput = THREE.MathUtils.clamp(input.y ?? 0, -1, 1)
@@ -520,7 +547,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   })
 
   return (
-    <group ref={root} position={AVATAR_START.toArray()} rotation-y={0} scale={underwaterMode ? 1.08 : 1} userData={{ mpdNoCollision: true }}>
+    <group ref={root} position={AVATAR_START.toArray()} rotation-y={0} scale={1} userData={{ mpdNoCollision: true }}>
       <mesh rotation-x={-Math.PI / 2} position={[0, 0.01, 0]}>
         <circleGeometry args={[0.32, 24]} />
         <meshBasicMaterial color="#000" transparent opacity={0.22} depthWrite={false} />

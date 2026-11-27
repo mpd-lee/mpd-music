@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { Html, RoundedBox, useTexture } from '@react-three/drei'
 import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
@@ -161,86 +161,72 @@ function createCloudFilledSkyTexture(skySource: THREE.Texture, coastSource: THRE
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(skyImage, 0, 0, skyW, skyH, 0, 0, width, height)
 
-  // Fill the broad blue void with the clean central cloud field from the existing
-  // coastal photograph. This is an OPAQUE colour blend, not a transparency mask:
-  // no forest pixel threshold can accidentally punch a larger hole in the sky.
-  const base = ctx.getImageData(0, 0, width, height)
-  const basePixels = base.data
-  const cloud = document.createElement('canvas')
-  cloud.width = width
-  cloud.height = height
-  const cloudCtx = cloud.getContext('2d', { willReadFrequently: true })
+  // The previous version sampled only the centre 60% and a narrow band below
+  // the top edge. That mostly sampled blue sky, leaving the zenith as a larger
+  // featureless blue patch. Sample the full photographic sky instead, then keep
+  // only neutral/white cloud pixels. Green tree crowns, brown branches and blue
+  // sky are excluded, so this cannot paste a second horizon or a fog-coloured disk.
+  const sourceX = 0
+  const sourceW = coastW
+  const sourceY = 0
+  const sourceH = Math.round(coastH * 0.54)
+  const overlayHeight = Math.round(height * 0.92)
+  const cloudCanvas = document.createElement('canvas')
+  cloudCanvas.width = width
+  cloudCanvas.height = overlayHeight
+  const cloudCtx = cloudCanvas.getContext('2d', { willReadFrequently: true })
   if (!cloudCtx) return skySource
   cloudCtx.imageSmoothingEnabled = true
   cloudCtx.imageSmoothingQuality = 'high'
+  cloudCtx.drawImage(coastImage, sourceX, sourceY, sourceW, sourceH, 0, 0, width, overlayHeight)
 
-  // The centre 50% of the coast photo contains open sky and clouds, away from
-  // the left/right tree canopy and below the bright sun flare.
-  const sx = Math.round(coastW * 0.25)
-  const sw = Math.round(coastW * 0.50)
-  const sy = Math.round(coastH * 0.135)
-  const sh = Math.round(coastH * 0.305)
-  const overlayHeight = Math.round(height * 0.88)
-  cloudCtx.drawImage(coastImage, sx, sy, sw, sh, 0, 0, width, overlayHeight)
-  const cloudFrame = cloudCtx.getImageData(0, 0, width, overlayHeight)
-  const cp = cloudFrame.data
+  const cloudData = cloudCtx.getImageData(0, 0, width, overlayHeight).data
+  const base = ctx.getImageData(0, 0, width, height)
+  const pixels = base.data
   const smooth = (a: number, b: number, x: number) => {
     const t = THREE.MathUtils.clamp((x - a) / Math.max(0.0001, b - a), 0, 1)
     return t * t * (3 - 2 * t)
   }
 
-  // Dense cloud fill over the previously empty zone, then a long lower feather
-  // into the original equirectangular sky. Every output pixel remains opaque.
   for (let y = 0; y < overlayHeight; y += 1) {
-    const vertical = 0.96 * (1 - smooth(overlayHeight * 0.84, overlayHeight, y))
+    const vertical = 0.86 * (1 - smooth(overlayHeight * 0.86, overlayHeight, y))
     for (let x = 0; x < width; x += 1) {
       const i = (y * width + x) * 4
-      const r = cp[i], g = cp[i + 1], b = cp[i + 2]
-      // Reduce any remaining edge foliage/green contamination without making
-      // transparent pixels. Blend those few pixels back toward the original sky.
-      const foliage = g > r * 1.12 && g > b * 1.08 && (g - r) > 18
-      const confidence = foliage ? 0.10 : 1
-      const blend = vertical * confidence
-      basePixels[i] = Math.round(basePixels[i] * (1 - blend) + r * blend)
-      basePixels[i + 1] = Math.round(basePixels[i + 1] * (1 - blend) + g * blend)
-      basePixels[i + 2] = Math.round(basePixels[i + 2] * (1 - blend) + b * blend)
-      basePixels[i + 3] = 255
+      const r = cloudData[i], g = cloudData[i + 1], b = cloudData[i + 2]
+      const maximum = Math.max(r, g, b)
+      const minimum = Math.min(r, g, b)
+      const luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
+      const chroma = maximum - minimum
+      const greenLeaf = g > r * 1.055 && g > b * 1.045 && (g - r) > 9
+      const warmLeafOrBark = r > g * 1.16 && r > b * 1.19 && (r - b) > 18
+      const horizontalEdge = smooth(0, width * 0.035, x) * (1 - smooth(width * 0.965, width, x))
+      // Capture wispy cirrus and bright cumulus; reject high-chroma sky and foliage.
+      const cloudMask = smooth(112, 188, luminance) * (1 - smooth(24, 116, chroma) * 0.98)
+      const alpha = cloudMask * vertical * horizontalEdge * (greenLeaf || warmLeafOrBark ? 0 : 0.88)
+      if (alpha <= 0.002) continue
+      pixels[i] = Math.round(pixels[i] * (1 - alpha) + r * alpha)
+      pixels[i + 1] = Math.round(pixels[i + 1] * (1 - alpha) + g * alpha)
+      pixels[i + 2] = Math.round(pixels[i + 2] * (1 - alpha) + b * alpha)
+      pixels[i + 3] = 255
     }
   }
 
-  // Close the equirectangular left/right seam with a very narrow blend. The
-  // previous alpha-cut cloud mask created a pale ring around the zenith; this
-  // pass changes colour only and never changes alpha.
-  const seamBand = Math.max(8, Math.floor(width * 0.012))
+  // Keep source zenith pixels. Do not add a flat pole cap or alpha transparency:
+  // both made the overhead view look like a round opening.
+  const seamBand = Math.max(6, Math.floor(width * 0.006))
   for (let y = 0; y < height; y += 1) {
     for (let x = 0; x < seamBand; x += 1) {
-      const weight = (1 - x / seamBand) * 0.22
-      const li = (y * width + x) * 4
-      const ri = (y * width + (width - seamBand + x)) * 4
+      const t = (1 - x / seamBand) * 0.14
+      const left = (y * width + x) * 4
+      const right = (y * width + width - seamBand + x) * 4
       for (let c = 0; c < 3; c += 1) {
-        const average = (basePixels[li + c] + basePixels[ri + c]) * 0.5
-        basePixels[li + c] = Math.round(basePixels[li + c] * (1 - weight) + average * weight)
-        basePixels[ri + c] = Math.round(basePixels[ri + c] * (1 - weight) + average * weight)
+        const average = (pixels[left + c] + pixels[right + c]) * 0.5
+        pixels[left + c] = Math.round(pixels[left + c] * (1 - t) + average * t)
+        pixels[right + c] = Math.round(pixels[right + c] * (1 - t) + average * t)
       }
     }
   }
-  // Stabilise the pole itself without smearing the cloud layer below it.
-  const capRows = Math.max(3, Math.floor(height * 0.006))
-  const sampleY = Math.min(height - 1, capRows * 3)
-  const mean = [0, 0, 0]
-  for (let x = 0; x < width; x += 1) {
-    const i = (sampleY * width + x) * 4
-    mean[0] += basePixels[i]; mean[1] += basePixels[i + 1]; mean[2] += basePixels[i + 2]
-  }
-  for (let c = 0; c < 3; c += 1) mean[c] /= width
-  for (let y = 0; y < capRows; y += 1) {
-    const t = 1 - y / capRows
-    for (let x = 0; x < width; x += 1) {
-      const i = (y * width + x) * 4
-      for (let c = 0; c < 3; c += 1) basePixels[i + c] = Math.round(basePixels[i + c] * (1 - t) + mean[c] * t)
-      basePixels[i + 3] = 255
-    }
-  }
+  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255
   ctx.putImageData(base, 0, 0)
 
   const texture = new THREE.CanvasTexture(canvas)
@@ -296,13 +282,13 @@ function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   // Use the exact same radius and vertical centre as ForestPanorama. The coastal arc
   // overlaps the forest arc by about 10 degrees at each end, and the feathered coast
   // edges reveal the forest underneath without a radial step or a flat-card intersection.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(260, 260, 120, quality === 'mobile' ? 64 : 112, 1, true, Math.PI - 0.92, 1.84), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(280, 280, 96, quality === 'mobile' ? 64 : 112, 1, true, Math.PI - 0.92, 1.84), [quality])
   useEffect(() => () => {
     if (image !== source) image.dispose()
     geometry.dispose()
   }, [image, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, 17, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, -2, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
       <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.BackSide} depthWrite={false} />
     </mesh>
   )
@@ -454,13 +440,13 @@ function ForestPanorama({ quality }: { quality: GraphicsTier }) {
   const coastalSource = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const texture = useMemo(() => createGreenForestTexture(source, coastalSource, quality), [source, coastalSource, quality])
   // Increase the angular overlap so the coastal fade always reveals real forest texture.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(260, 260, 120, quality === 'mobile' ? 72 : 128, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(280, 280, 96, quality === 'mobile' ? 72 : 128, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
   }, [texture, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, 17, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, -2, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
       <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} />
     </mesh>
   )

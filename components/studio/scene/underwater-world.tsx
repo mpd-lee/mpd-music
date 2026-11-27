@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -312,7 +312,7 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
       const dx = (u - 0.405) / 0.155
       const horizontalMask = Math.exp(-dx * dx * 1.45)
       const brightMask = smoothstep(78, 165, luminance)
-      const attenuation = 0.58 * verticalMask * horizontalMask * brightMask
+      const attenuation = 0.68 * verticalMask * horizontalMask * brightMask
       const gain = 1 - attenuation
       pixels[i] = Math.round(r * gain)
       pixels[i + 1] = Math.round(g * gain)
@@ -1127,17 +1127,17 @@ function StreamingReefField({ playerPositionRef, quality }: {
   quality: GraphicsTier
 }) {
   const chunks = useRef<(THREE.Group | null)[]>([])
-  const chunkSize = 150
-  const verticalBand = 180
+  const chunkSize = 96
+  const verticalBand = 120
   const branchCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 3 : 4
   const schoolCount = quality === 'mobile' ? 9 : quality === 'balanced' ? 14 : 20
   const chunkData = useMemo(() => Array.from({ length: 9 }, (_, index) => {
     let seed = 4181 + index * 7919
     const random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
     return Array.from({ length: 4 }, (_, item) => ({
-      x: (random() - 0.5) * 112,
-      z: (random() - 0.5) * 112,
-      y: -12 - random() * 72,
+      x: (random() - 0.5) * 68,
+      z: (random() - 0.5) * 68,
+      y: -10 - random() * 58,
       tint: ['#a58f79', '#8da38b', '#8d9e91', '#b19b82'][Math.floor(random() * 4)],
       seed: index * 97 + item * 31 + 11,
       scale: 0.72 + random() * 0.62,
@@ -1172,7 +1172,7 @@ function StreamingReefField({ playerPositionRef, quality }: {
           {items.filter((item) => item.kelp).slice(0, quality === 'mobile' ? 1 : 2).map((item) => (
             <Kelp key={`stream-kelp-${item.seed}`} position={[item.x * 0.82, item.y - 2, item.z * 0.82]} seed={item.seed * 1.7} />
           ))}
-          <InstancedFishSchool count={schoolCount} school={index + 61} baseDepth={-8} spreadX={58} spreadZ={58} />
+          <InstancedFishSchool count={schoolCount} school={index + 61} baseDepth={-8} spreadX={38} spreadZ={38} />
         </group>
       ))}
     </group>
@@ -1223,7 +1223,7 @@ export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
       {/* Natural sunlight is already baked into the 360° photo. Avoid synthetic cones that read as blurry vertical bands. */}
 
       <UnderwaterDome quality={quality} />
-      <group scale={1.12}>
+      <group scale={1.02}>
       {Array.from({ length: rockCount }, (_, index) => (
         <ReefEscarpmentRock key={`reef-rock-${index}`} index={index} quality={quality} count={rockCount} baseY={-16.2} />
       ))}
@@ -1253,7 +1253,7 @@ export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
       {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} worldRootRef={worldRoot} quality={quality} />}
 
       {/* Dispersed coral heads at different depths give the diver real near-field landmarks. */}
-      <group scale={1.12}>
+      <group scale={1.02}>
         {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
         {kelpPositions.map((position, i) => <Kelp key={`near-kelp-${i}`} position={position} seed={i * 7.7 + 91} />)}
       </group>

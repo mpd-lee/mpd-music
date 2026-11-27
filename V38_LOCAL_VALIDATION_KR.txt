@@ -1,0 +1,10 @@
+설치/검증 순서
+1. V38 ZIP을 Downloads에 저장하고 압축 해제
+2. APPLY_MPD_MUSIC_STUDIO_WORLD_V38_FINAL.ps1 실행
+3. 스크립트가 main 브랜치/원격/깨끗한 Git 상태 확인
+4. 현재 파일 백업 후 V38 파일 적용
+5. npx pnpm exec tsc --noEmit
+6. npx pnpm build
+7. 검사가 모두 통과할 때만 Git commit/push 및 Vercel Production 배포
+
+TypeScript/Build 성공은 브라우저 조작 성공과 다릅니다. 배포 후 PC/모바일 각각 수중 클릭, 터치, 조이스틱, 상승/하강, 줌을 확인해야 합니다.

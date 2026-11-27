@@ -1,0 +1,18 @@
+MPD V38 PATCH MANIFEST
+
+Patched:
+- components/studio/scene/outdoor.tsx
+- components/studio/scene/underwater-world.tsx
+- components/studio/scene/studio-scene.tsx
+- components/studio/scene/avatar.tsx
+- components/studio/player-controls.tsx
+- lib/world-depth.ts (the V37 100km/8km open-water bounds)
+- V38_CHANGELOG_KR.txt
+- V38_PATCH_MANIFEST.txt
+- V38_LOCAL_VALIDATION_KR.txt
+
+Not patched:
+- app/globals.css
+- components/studio/chat-panel.tsx
+- components/studio/studio-app.tsx
+- .env / .env.local
