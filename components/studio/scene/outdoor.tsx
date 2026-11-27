@@ -144,8 +144,8 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
   // Use a real equirectangular scene background instead of a distant mesh.
   // The background is infinitely distant and cannot leave a blue gap above the forest.
   const texture = useTexture(quality === 'mobile'
-    ? '/images/mpd-sky-panorama-v33-mobile.webp'
-    : '/images/mpd-sky-panorama-v33.webp')
+    ? '/images/mpd-sky-panorama-v32-mobile.webp'
+    : '/images/mpd-sky-panorama-v32.webp')
   const scene = useThree((state) => state.scene)
   useLayoutEffect(() => {
     const previousBackground = scene.background
@@ -180,7 +180,7 @@ function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   // Use the exact same radius and vertical centre as ForestPanorama. The coastal arc
   // overlaps the forest arc by about 10 degrees at each end, and the feathered coast
   // edges reveal the forest underneath without a radial step or a flat-card intersection.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(276, 276, 174, quality === 'mobile' ? 64 : 112, 1, true, Math.PI - 0.92, 1.84), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(340, 340, 244, quality === 'mobile' ? 56 : 96, 1, true, Math.PI - 0.92, 1.84), [quality])
   useEffect(() => () => {
     if (image !== source) image.dispose()
     geometry.dispose()
@@ -315,20 +315,24 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
     }
   }
 
-  // The source forest photo has a heavy overhead canopy. Feather its top edge so
-  // the continuous sky panorama shows through instead of forming a dark green lid.
-  // A short lower feather blends the wall into the island terrain without a hard cut.
+  // V34: the old forest cylinder displayed the photo's solid upper canopy as a
+  // flat green ceiling. Fade only the top edge of that photograph into the true
+  // equirectangular sky behind it. The fade is gradual, so there is no hard ring
+  // or circular cutout when the camera looks upward.
+  const fadeStart = 0.035
+  const fadeEnd = 0.485
   for (let y = 0; y < height; y += 1) {
-    const topT = THREE.MathUtils.clamp(y / Math.max(1, height * 0.10), 0, 1)
-    const topFade = topT * topT * (3 - 2 * topT)
-    const bottomT = THREE.MathUtils.clamp((height - 1 - y) / Math.max(1, height * 0.06), 0, 1)
-    const bottomFade = bottomT * bottomT * (3 - 2 * bottomT)
-    const alpha = Math.min(topFade, bottomFade)
+    const v = y / Math.max(1, height - 1)
+    const t0 = THREE.MathUtils.clamp((v - fadeStart) / (fadeEnd - fadeStart), 0, 1)
+    const alpha = t0 * t0 * (3 - 2 * t0)
+    if (alpha >= 0.999) continue
+    const row = y * width * 4
     for (let x = 0; x < width; x += 1) {
-      const i = (y * width + x) * 4
-      pixels[i + 3] = Math.round(pixels[i + 3] * alpha)
+      const index = row + x * 4 + 3
+      pixels[index] = Math.round(pixels[index] * alpha)
     }
   }
+
   context.putImageData(frame, 0, 0)
   const corrected = new THREE.CanvasTexture(canvas)
   corrected.colorSpace = THREE.SRGBColorSpace
@@ -348,7 +352,7 @@ function ForestPanorama({ quality }: { quality: GraphicsTier }) {
   const coastalSource = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const texture = useMemo(() => createGreenForestTexture(source, coastalSource, quality), [source, coastalSource, quality])
   // Increase the angular overlap so the coastal fade always reveals real forest texture.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(276, 276, 174, quality === 'mobile' ? 72 : 128, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(340, 340, 244, quality === 'mobile' ? 64 : 112, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
@@ -1294,7 +1298,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
   const nearForest: { position: [number, number, number]; scale: number; seed: number }[] = []
   const sideStep = quality === 'mobile' ? 13.2 : quality === 'balanced' ? 11.8 : 10.8
   // Keep the nearest trunks beyond the pavilion's immediate sightline. This opens a clean sky band above the roof while the photo forest and rear rows preserve a continuous green horizon.
-  const sideRows = quality === 'mobile' ? [44] : [46]
+  const sideRows = quality === 'mobile' ? [38] : [40]
   for (const side of [-1, 1]) {
     for (const rowX of sideRows) {
       let rowIndex = 0
@@ -1304,7 +1308,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
         if (inNoTreeZone(x, staggeredZ)) { rowIndex += 1; continue }
         nearForest.push({
           position: [x, getIslandGroundHeight(x, staggeredZ), staggeredZ],
-          scale: (0.92 + ((rowIndex * 7 + rowX) % 5) * 0.085) * 0.54,
+          scale: (1.0 + ((rowIndex * 7 + rowX) % 5) * 0.10) * 0.64,
           seed: 9100 + nearForest.length * 17 + (side > 0 ? 3 : 0),
         })
         rowIndex += 1

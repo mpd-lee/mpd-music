@@ -28,8 +28,8 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     if (length > 1) { x /= length; z /= length }
     const y = underwater ? vertical.current : 0
     const next = length < 0.04 && Math.abs(y) < 0.04 ? ZERO : { x, z, y }
-    // Ignore sub-pixel joystick jitter; this keeps camera/scene work quiet on phones.
-    if (Math.abs(next.x - lastPublished.current.x) < 0.025 && Math.abs(next.z - lastPublished.current.z) < 0.025 && Math.abs((next.y ?? 0) - (lastPublished.current.y ?? 0)) < 0.025) return
+    // V34: publish every real control change immediately. A dead-zone comparison
+    // against the previous vector could suppress short touch/joystick movement.
     lastPublished.current = next
     onMove(next)
   }, [onMove, underwater])
@@ -51,7 +51,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     const down = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
       if (isTyping(event.target) || document.body.dataset.mpdPianoOpen === 'true') return
-      if (underwater && (event.code === 'Space' || (event.code === 'ShiftLeft' || event.code === 'ShiftRight') || key === 'arrowup' || key === 'arrowdown')) {
+      if (underwater && (event.code === 'Space' || event.code === 'ShiftLeft' || key === 'arrowup' || key === 'arrowdown')) {
         event.preventDefault()
         vertical.current = (event.code === 'Space' || key === 'arrowup') ? 1 : -1
         publish()
@@ -64,7 +64,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     }
     const up = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
-      if (underwater && (event.code === 'Space' || (event.code === 'ShiftLeft' || event.code === 'ShiftRight') || key === 'arrowup' || key === 'arrowdown')) { vertical.current = 0; keys.current.delete(key); publish(); return }
+      if (underwater && (event.code === 'Space' || event.code === 'ShiftLeft' || key === 'arrowup' || key === 'arrowdown')) { vertical.current = 0; keys.current.delete(key); publish(); return }
       if (!movementKeys.has(key)) return
       keys.current.delete(key)
       publish()
@@ -110,12 +110,10 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   const startDiveAxis = (event: ReactPointerEvent<HTMLButtonElement>, value: number) => {
     event.preventDefault()
     event.stopPropagation()
-    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* pointer may already be released by the browser */ }
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* browser may already own the pointer */ }
     setDiveAxis(value)
   }
   const stopDiveAxis = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
     setDiveAxis(0)
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
   }
@@ -124,15 +122,9 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     <>
       <div className="mpd-desktop-move-hint" aria-hidden="true">
         {underwater
-          ? <><span>W A S D</span> 수평 수영 · <span>↑ / Space</span> 상승 · <span>↓ / Shift</span> 하강 · 화면 위/아래 터치로 깊이 이동</>
+          ? <><span>W A S D</span> 수평 수영 · <span>↑ / Space</span> 상승 · <span>↓ / Left Shift</span> 하강 · 화면 위/아래 터치로 깊이 이동</>
           : <><span>W A S D</span> 또는 방향키로 이동 · 마우스로 바닥을 누르면 해당 위치로 이동</>}
       </div>
-      {underwater && (
-        <div className="mpd-desktop-dive-axis" aria-label="PC 수중 상승 및 하강">
-          <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowUp size={15} /> 상승</button>
-          <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowDown size={15} /> 하강</button>
-        </div>
-      )}
       <div className="mpd-mobile-controls" aria-label="모바일 이동 조이스틱">
         <div
           ref={baseRef}
@@ -140,11 +132,12 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
           onPointerDown={(event) => {
             event.preventDefault()
             event.stopPropagation()
+            if (activePointer.current !== null) return
             activePointer.current = event.pointerId
-            try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* pointer may already be released */ }
+            try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* browser may already own the pointer */ }
             updateStick(event)
           }}
-          onPointerMove={(event) => { if (activePointer.current === event.pointerId) { event.stopPropagation(); updateStick(event) } }}
+          onPointerMove={(event) => { if (activePointer.current === event.pointerId) updateStick(event) }}
           onPointerUp={stopStick}
           onPointerCancel={stopStick}
           onLostPointerCapture={(event) => { if (activePointer.current === event.pointerId) stopStick(event) }}

@@ -14,9 +14,9 @@ type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
 export const AVATAR_START = new THREE.Vector3(0, 0, 4.2)
 const SPEED = 4.25
-const UNDERWATER_INPUT_SPEED = 92.0
-const UNDERWATER_CLICK_SPEED = 96.0
-const UNDERWATER_VERTICAL_SPEED = 78.0
+const UNDERWATER_INPUT_SPEED = 56.0
+const UNDERWATER_CLICK_SPEED = 72.0
+const UNDERWATER_VERTICAL_SPEED = 22.0
 type MoveVector = { x: number; z: number; y?: number }
 const SKIN = '#f3cba5'
 const HOODIE = '#2f4a5a'
@@ -105,13 +105,13 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
     // Keep the avatar in a natural over-the-shoulder third-person frame.
     // The camera starts behind the avatar, not above its head, on land and underwater.
-    const distance = underwaterMode ? (coarse ? 28.0 : 25.0) : (coarse ? 9.8 : 8.4)
-    const targetHeight = underwaterMode ? 1.24 : 1.18
-    const cameraHeight = underwaterMode ? (coarse ? 4.0 : 3.6) : 2.82
+    const distance = underwaterMode ? (coarse ? 24.0 : 22.0) : (coarse ? 9.8 : 8.4)
+    const targetHeight = underwaterMode ? 1.20 : 1.18
+    const cameraHeight = underwaterMode ? (coarse ? 3.55 : 3.25) : 2.82
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
       // Wider underwater lens shows more of the reef around the diver on portrait phones.
-      perspective.fov = underwaterMode ? (coarse ? 88 : 80) : (coarse ? 52 : 48)
+      perspective.fov = underwaterMode ? (coarse ? 110 : 104) : (coarse ? 52 : 48)
       perspective.updateProjectionMatrix()
     }
     controls.target.set(pos.x, pos.y + targetHeight, pos.z)
@@ -238,7 +238,9 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
 
     if (underwaterMode && Math.abs(input.y ?? 0) > 0.04) {
       arrived.current = true
-      const verticalStep = THREE.MathUtils.clamp(input.y ?? 0, -1, 1) * UNDERWATER_VERTICAL_SPEED * dt
+      const verticalInput = THREE.MathUtils.clamp(input.y ?? 0, -1, 1)
+      const verticalSpeed = verticalInput > 0 ? 13.5 : UNDERWATER_VERTICAL_SPEED
+      const verticalStep = verticalInput * verticalSpeed * dt
       const candidateY = THREE.MathUtils.clamp(g.position.y + verticalStep, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y)
       // Free vertical buoyancy: reef colliders must never trap the diver.
       g.position.y = candidateY
@@ -260,8 +262,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       if (direction.lengthSq() > 0.001) {
         direction.normalize()
         const speed = underwaterMode ? UNDERWATER_INPUT_SPEED : SPEED
-        const inputMagnitude = Math.min(1, inputLength)
-        const displacement = direction.clone().multiplyScalar(speed * dt * (underwaterMode ? Math.max(0.28, inputMagnitude) : 1))
+        const displacement = direction.clone().multiplyScalar(speed * dt)
         if (underwaterMode) {
           g.position.add(displacement)
           g.position.x = THREE.MathUtils.clamp(g.position.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)

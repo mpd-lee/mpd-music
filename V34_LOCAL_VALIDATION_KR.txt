@@ -1,0 +1,9 @@
+V34 작업물 자체 검사
+
+- 변경 대상 TS/TSX 6개 파일을 TypeScript transpile parser로 구문 검사: 통과.
+- 전체 프로젝트의 semantic TypeScript 검사 및 Next.js 빌드는 사용자의 실제 프로젝트/node_modules/.env.local 환경에서 APPLY 스크립트가 수행하도록 구성.
+- 실제 브라우저 PC/스마트폰 조작 검증은 배포 후 필요.
+- 배경/수중 로직 외 UI CSS, 채팅 패널, 앱 패널은 패치 대상에서 제외.
+
+Hotfix 1: underwater-world.tsx 322행의 불가능한 yRows===1 비교를 제거했습니다.
+PowerShell 5.1 실행 전 프로젝트 전체 TypeScript 검사와 Next.js 빌드를 설치 스크립트에서 수행합니다. 이 패키지는 현재 실행 환경에서 사용자의 전체 프로젝트 빌드를 수행하지 않았으므로, 배포 성공은 사용자 PC의 검사 결과로 판단합니다.
