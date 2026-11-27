@@ -16,94 +16,6 @@ const noRaycast = () => null
 const UP = new THREE.Vector3(0, 1, 0)
 
 
-/**
- * Convert the authored sky image to a pole-safe 2:1 equirectangular texture.
- * A normal landscape sky photo has different colours at every pixel along its
- * top edge. Equirectangular projection collapses that entire edge to one zenith
- * point, which is what creates the circular/pinched-looking sky patch.
- * This makes a short, smooth polar cap and closes the left/right wrap seam.
- */
-function createPoleSafeSkyTexture(source: THREE.Texture, quality: GraphicsTier) {
-  if (typeof document === 'undefined') return source
-  const image = source.image as HTMLImageElement
-  const sourceWidth = image?.naturalWidth || image?.width || 0
-  const sourceHeight = image?.naturalHeight || image?.height || 0
-  if (!sourceWidth || !sourceHeight) return source
-
-  const width = Math.min(sourceWidth, quality === 'mobile' ? 1024 : 2048)
-  const height = Math.max(2, Math.round(width / 2))
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return source
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = 'high'
-  ctx.drawImage(image, 0, 0, sourceWidth, sourceHeight, 0, 0, width, height)
-
-  const frame = ctx.getImageData(0, 0, width, height)
-  const pixels = frame.data
-  const original = new Uint8ClampedArray(pixels)
-  const smooth = (v: number) => { const t = THREE.MathUtils.clamp(v, 0, 1); return t * t * (3 - 2 * t) }
-
-  // The equirectangular seam is closed symmetrically, with a 3.5% transition band.
-  const seam = Math.max(8, Math.floor(width * 0.035))
-  for (let y = 0; y < height; y += 1) {
-    for (let d = 0; d < seam; d += 1) {
-      const w = 1 - smooth(d / Math.max(1, seam - 1))
-      const li = (y * width + d) * 4
-      const ri = (y * width + (width - 1 - d)) * 4
-      for (let c = 0; c < 3; c += 1) {
-        const average = (original[li + c] + original[ri + c]) * 0.5
-        pixels[li + c] = Math.round(original[li + c] * (1 - w) + average * w)
-        pixels[ri + c] = Math.round(original[ri + c] * (1 - w) + average * w)
-      }
-    }
-  }
-
-  const cap = Math.max(20, Math.floor(height * 0.065))
-  const polarAverage = (top: boolean) => {
-    const row = top ? 0 : height - 1
-    const sums = [0, 0, 0]
-    const x0 = Math.floor(width * 0.08)
-    const x1 = Math.ceil(width * 0.92)
-    for (let x = x0; x < x1; x += 1) {
-      const i = (row * width + x) * 4
-      for (let c = 0; c < 3; c += 1) sums[c] += original[i + c]
-    }
-    const count = Math.max(1, x1 - x0)
-    return sums.map((value) => value / count)
-  }
-  for (const top of [true, false]) {
-    const average = polarAverage(top)
-    for (let y = 0; y < cap; y += 1) {
-      const row = top ? y : height - 1 - y
-      const weight = 1 - smooth(y / (cap - 1))
-      if (weight <= 0) continue
-      for (let x = 0; x < width; x += 1) {
-        const i = (row * width + x) * 4
-        for (let c = 0; c < 3; c += 1) {
-          pixels[i + c] = Math.round(original[i + c] * (1 - weight) + average[c] * weight)
-        }
-      }
-    }
-  }
-  ctx.putImageData(frame, 0, 0)
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  texture.mapping = THREE.EquirectangularReflectionMapping
-  texture.wrapS = THREE.RepeatWrapping
-  texture.wrapT = THREE.ClampToEdgeWrapping
-  texture.minFilter = THREE.LinearMipmapLinearFilter
-  texture.magFilter = THREE.LinearFilter
-  texture.generateMipmaps = true
-  texture.anisotropy = quality === 'mobile' ? 2 : 12
-  texture.needsUpdate = true
-  return texture
-}
-
-
 type SeatHandler = (position: [number, number, number], rotationY: number) => void
 
 /**
@@ -200,7 +112,7 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   // borders are feathered so no hard vertical photo edge is visible against trees.
   // A longer eased feather hides the straight cut where the coastal photo meets
   // the forest belt. Keep the photograph's centre fully opaque and untouched.
-  const fadeWidth = 0.225
+  const fadeWidth = 0.132
   const alpha = context.createLinearGradient(0, 0, width, 0)
   alpha.addColorStop(0, 'rgba(0,0,0,0)')
   alpha.addColorStop(fadeWidth * 0.16, 'rgba(0,0,0,0.035)')
@@ -231,26 +143,34 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
 function SkyCanopy({ quality }: { quality: GraphicsTier }) {
   // Use a real equirectangular scene background instead of a distant mesh.
   // The background is infinitely distant and cannot leave a blue gap above the forest.
-  const source = useTexture(quality === 'mobile'
+  const texture = useTexture(quality === 'mobile'
     ? '/images/mpd-sky-panorama-v33-mobile.webp'
     : '/images/mpd-sky-panorama-v33.webp')
-  const texture = useMemo(() => createPoleSafeSkyTexture(source, quality), [source, quality])
   const scene = useThree((state) => state.scene)
   useLayoutEffect(() => {
     const previousBackground = scene.background
     const previousRotation = scene.backgroundRotation.clone()
     const previousIntensity = scene.backgroundIntensity
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.mapping = THREE.EquirectangularReflectionMapping
+    texture.wrapS = THREE.RepeatWrapping
+    texture.wrapT = THREE.ClampToEdgeWrapping
+    texture.minFilter = THREE.LinearMipmapLinearFilter
+    texture.magFilter = THREE.LinearFilter
+    texture.generateMipmaps = true
+    texture.anisotropy = quality === 'mobile' ? 2 : 12
+    texture.needsUpdate = true
     scene.background = texture
-    // Orient the continuous sky panorama over the open coastal bay.
+    // The central sky from the front coastal photograph faces the entry view.
+    // The pano continues the same sky over the forest roof without a finite dome edge.
     scene.backgroundRotation.set(0, -Math.PI / 2, 0)
-    scene.backgroundIntensity = 0.96
+    scene.backgroundIntensity = 1.0
     return () => {
       scene.background = previousBackground
       scene.backgroundRotation.copy(previousRotation)
       scene.backgroundIntensity = previousIntensity
     }
   }, [scene, texture, quality])
-  useEffect(() => () => { if (texture !== source) texture.dispose() }, [texture, source])
   return null
 }
 
@@ -260,7 +180,7 @@ function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   // Use the exact same radius and vertical centre as ForestPanorama. The coastal arc
   // overlaps the forest arc by about 10 degrees at each end, and the feathered coast
   // edges reveal the forest underneath without a radial step or a flat-card intersection.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 56 : 96, 1, true, Math.PI - 0.92, 1.84), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(276, 276, 174, quality === 'mobile' ? 64 : 112, 1, true, Math.PI - 0.92, 1.84), [quality])
   useEffect(() => () => {
     if (image !== source) image.dispose()
     geometry.dispose()
@@ -352,7 +272,7 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
     sampleContext.drawImage(coastImage, coastInset, 0, sampleW, coastHeight, 0, 0, sampleSpan, height)
     sampleContext.drawImage(coastImage, coastWidth - coastInset - sampleW, 0, sampleW, coastHeight, sampleSpan, 0, sampleSpan, height)
     const targets = sampleContext.getImageData(0, 0, sampleCanvas.width, height).data
-    const band = Math.max(4, Math.floor(width * 0.285))
+    const band = Math.max(4, Math.floor(width * 0.205))
     const sourceBand = Math.max(4, Math.round(width * 0.036))
     const smooth = (x: number) => { const t = THREE.MathUtils.clamp(x, 0, 1); return t * t * (3 - 2 * t) }
     for (let y = 0; y < height; y += 1) {
@@ -395,17 +315,18 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
     }
   }
 
-  // The source forest panorama contains a solid green canopy across its upper edge.
-  // Fade only that upper photo band into the independent sky environment; this
-  // removes the artificial circular "hole" framed by the canopy when looking up.
-  const crownFadeStart = Math.floor(height * 0.015)
-  const crownFadeEnd = Math.floor(height * 0.245)
-  for (let y = crownFadeStart; y < crownFadeEnd; y += 1) {
-    const t = THREE.MathUtils.clamp((y - crownFadeStart) / Math.max(1, crownFadeEnd - crownFadeStart), 0, 1)
-    const eased = t * t * (3 - 2 * t)
+  // The source forest photo has a heavy overhead canopy. Feather its top edge so
+  // the continuous sky panorama shows through instead of forming a dark green lid.
+  // A short lower feather blends the wall into the island terrain without a hard cut.
+  for (let y = 0; y < height; y += 1) {
+    const topT = THREE.MathUtils.clamp(y / Math.max(1, height * 0.10), 0, 1)
+    const topFade = topT * topT * (3 - 2 * topT)
+    const bottomT = THREE.MathUtils.clamp((height - 1 - y) / Math.max(1, height * 0.06), 0, 1)
+    const bottomFade = bottomT * bottomT * (3 - 2 * bottomT)
+    const alpha = Math.min(topFade, bottomFade)
     for (let x = 0; x < width; x += 1) {
-      const alphaIndex = (y * width + x) * 4 + 3
-      pixels[alphaIndex] = Math.round(pixels[alphaIndex] * eased)
+      const i = (y * width + x) * 4
+      pixels[i + 3] = Math.round(pixels[i + 3] * alpha)
     }
   }
   context.putImageData(frame, 0, 0)
@@ -427,14 +348,14 @@ function ForestPanorama({ quality }: { quality: GraphicsTier }) {
   const coastalSource = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const texture = useMemo(() => createGreenForestTexture(source, coastalSource, quality), [source, coastalSource, quality])
   // Increase the angular overlap so the coastal fade always reveals real forest texture.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 64 : 112, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(276, 276, 174, quality === 'mobile' ? 72 : 128, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
   }, [texture, source, geometry])
   return (
     <mesh geometry={geometry} position={[0, 18, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
-      <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} fog={false} transparent depthWrite={false} />
+      <meshBasicMaterial map={texture} transparent side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} />
     </mesh>
   )
 }
@@ -1373,7 +1294,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
   const nearForest: { position: [number, number, number]; scale: number; seed: number }[] = []
   const sideStep = quality === 'mobile' ? 13.2 : quality === 'balanced' ? 11.8 : 10.8
   // Keep the nearest trunks beyond the pavilion's immediate sightline. This opens a clean sky band above the roof while the photo forest and rear rows preserve a continuous green horizon.
-  const sideRows = quality === 'mobile' ? [48] : [52]
+  const sideRows = quality === 'mobile' ? [44] : [46]
   for (const side of [-1, 1]) {
     for (const rowX of sideRows) {
       let rowIndex = 0
@@ -1383,7 +1304,7 @@ export function Outdoor({ onPathClick, onPoolClick, onSeat, onRest, onStand, qua
         if (inNoTreeZone(x, staggeredZ)) { rowIndex += 1; continue }
         nearForest.push({
           position: [x, getIslandGroundHeight(x, staggeredZ), staggeredZ],
-          scale: (0.96 + ((rowIndex * 7 + rowX) % 5) * 0.08) * 0.59,
+          scale: (0.92 + ((rowIndex * 7 + rowX) % 5) * 0.085) * 0.54,
           seed: 9100 + nearForest.length * 17 + (side > 0 ? 3 : 0),
         })
         rowIndex += 1

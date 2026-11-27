@@ -1,28 +1,18 @@
 MPD MUSIC STUDIO WORLD V33 PATCH MANIFEST
-Version: V33
-Project: mpd-lee/mpd-music
-Target branch: main
-Target Vercel project: mzpdlee-4096/mpd-music
+=========================================
 
-Files: 11
-1. app/globals.css
-2. components/studio/player-controls.tsx
-3. components/studio/scene/outdoor.tsx
-4. components/studio/scene/underwater-world.tsx
-5. components/studio/scene/studio-scene.tsx
-6. components/studio/scene/avatar.tsx
-7. lib/world-depth.ts
-8. public/images/mpd-sky-panorama-v33.webp
-9. public/images/mpd-sky-panorama-v33-mobile.webp
-10. V33_CHANGELOG_KR.txt
-11. V33_PATCH_MANIFEST.txt
+V33_CHANGELOG_KR.txt
+V33_PATCH_MANIFEST.txt
+app/globals.css
+components/studio/player-controls.tsx
+components/studio/scene/avatar.tsx
+components/studio/scene/outdoor.tsx
+components/studio/scene/studio-scene.tsx
+components/studio/scene/underwater-world.tsx
+lib/world-depth.ts
+public/images/mpd-sky-panorama-v33.webp
+public/images/mpd-sky-panorama-v33-mobile.webp
+public/images/mpd-underwater-natural-v33.webp
+public/images/mpd-underwater-natural-v33-mobile.webp
 
-Installer:
-APPLY_MPD_MUSIC_STUDIO_WORLD_V33_FINAL.ps1
-
-Safety:
-- Automatic backup before file replacement
-- Automatic stash for pre-existing uncommitted and untracked project files
-- TypeScript and Next.js production build are required before commit/push
-- Restore pre-patch files if validation fails before Git commit
-- .env and .env.local are never in the patch list
+.env / .env.local / .vercel secrets are not included and are not modified.

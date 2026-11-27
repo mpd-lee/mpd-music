@@ -1,7 +1,7 @@
 'use client'
 
 import { Environment, OrbitControls } from '@react-three/drei'
-import { Canvas, useFrame, type ThreeEvent } from '@react-three/fiber'
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { GRAPHICS_PRESETS, type GraphicsTier } from '@/lib/graphics-quality'
@@ -92,6 +92,61 @@ function AdaptiveFrameGuard({ tier, onSlowFrame }: { tier: GraphicsTier; onSlowF
     sample.current.elapsed = 0
     sample.current.frames = 0
   })
+  return null
+}
+
+function UnderwaterPointerNavigator({ enabled, onNavigate }: {
+  enabled: boolean
+  onNavigate: (ray: THREE.Ray, ndcX: number, ndcY: number) => void
+}) {
+  const { gl, camera } = useThree()
+  const callback = useRef(onNavigate)
+  useEffect(() => { callback.current = onNavigate }, [onNavigate])
+  useEffect(() => {
+    if (!enabled) return
+    const element = gl.domElement
+    const raycaster = new THREE.Raycaster()
+    const pointer = new THREE.Vector2()
+    let activeId: number | null = null
+    let startX = 0
+    let startY = 0
+    let multiTouch = false
+    const onDown = (event: PointerEvent) => {
+      if (event.target !== element) return
+      if (event.pointerType === 'mouse' && event.button !== 0) return
+      if (activeId !== null) { multiTouch = true; activeId = null; return }
+      activeId = event.pointerId
+      multiTouch = false
+      startX = event.clientX
+      startY = event.clientY
+    }
+    const onUp = (event: PointerEvent) => {
+      if (event.pointerId !== activeId) return
+      const dx = event.clientX - startX
+      const dy = event.clientY - startY
+      const tapTolerance = event.pointerType === 'touch' ? 400 : 100
+      const isTap = !multiTouch && (dx * dx + dy * dy) <= tapTolerance
+      activeId = null
+      if (!isTap) return
+      const rect = element.getBoundingClientRect()
+      if (!rect.width || !rect.height) return
+      const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      const ndcY = 1 - ((event.clientY - rect.top) / rect.height) * 2
+      pointer.set(ndcX, ndcY)
+      raycaster.setFromCamera(pointer, camera)
+      callback.current(raycaster.ray.clone(), ndcX, ndcY)
+    }
+    const onCancel = () => { activeId = null; multiTouch = false }
+    element.addEventListener('pointerdown', onDown, true)
+    // Capture pointer-up globally: some mobile browsers release outside the canvas.
+    window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    return () => {
+      element.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('pointerup', onUp, true)
+      window.removeEventListener('pointercancel', onCancel, true)
+    }
+  }, [enabled, gl, camera])
   return null
 }
 
@@ -245,6 +300,11 @@ export function StudioScene({
     setAdaptiveDpr(GRAPHICS_PRESETS[tier].dpr)
   }, [])
 
+  useEffect(() => {
+    document.body.dataset.mpdUnderwater = underwater ? 'true' : 'false'
+    return () => { delete document.body.dataset.mpdUnderwater }
+  }, [underwater])
+
   const handleSlowFrame = useCallback(() => {
     setGraphicsTier((current) => current === 'high' ? 'balanced' : current === 'balanced' ? 'mobile' : 'mobile')
     setAdaptiveDpr((current) => Math.max(0.72, Number((current - 0.05).toFixed(2))))
@@ -295,6 +355,25 @@ export function StudioScene({
     setTravel({ position: approach, sit: false })
   }, [])
 
+  const handleDiveNavigate = useCallback((ray: THREE.Ray, ndcX: number, ndcY: number) => {
+    if (!underwaterRef.current) return
+    const current = localPositionRef.current
+    const horizontal = ray.direction.clone()
+    horizontal.y = 0
+    if (horizontal.lengthSq() < 0.006) horizontal.set(0, 0, -1)
+    horizontal.normalize()
+    // Each tap travels a useful distance; repeated taps can cover the entire 8 km volume.
+    const distance = THREE.MathUtils.clamp(230 + (1 - Math.abs(ndcY)) * 170 + Math.abs(ndcX) * 70, 220, 410)
+    const x = THREE.MathUtils.clamp(current.x + horizontal.x * distance, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
+    const z = THREE.MathUtils.clamp(current.z + horizontal.z * distance, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
+    // Screen top means ascending; screen bottom means deeper. Keep tap navigation submerged.
+    const y = THREE.MathUtils.clamp(current.y + ndcY * 115, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.65)
+    pendingPoolEntry.current = null
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+    setSeatActivity(null)
+    setTravel({ position: new THREE.Vector3(x, y, z), sit: false })
+  }, [])
+
   const handlePathClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta > CLICK_DRAG_TOLERANCE) return
@@ -314,7 +393,7 @@ export function StudioScene({
       // bottom means descend. A single tap must never send the diver hundreds of
       // metres away or create an unreachable route beyond the visible reef.
       const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.72, 0.72)
-      const verticalDelta = THREE.MathUtils.clamp(pointerY * 220.0 + rayVertical * 95.0, -320.0, 320.0)
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 76.0 + rayVertical * 18.0, -105.0, 105.0)
       const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.035)
       const depthPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -swimY)
       const tappedPoint = new THREE.Vector3()
@@ -323,7 +402,7 @@ export function StudioScene({
       horizontalDirection.y = 0
       if (horizontalDirection.lengthSq() < 0.0025) horizontalDirection.set(0, 0, -1)
       horizontalDirection.normalize()
-      const fallbackDistance = 260.0 + (1 - Math.abs(pointerY)) * 240.0
+      const fallbackDistance = 84.0 + (1 - Math.abs(pointerY)) * 34.0
       let dx: number
       let dz: number
       if (planeHit && Number.isFinite(tappedPoint.x) && Number.isFinite(tappedPoint.z)) {
@@ -333,8 +412,8 @@ export function StudioScene({
         if (horizontalDistance < 8.0) {
           dx = horizontalDirection.x * fallbackDistance
           dz = horizontalDirection.z * fallbackDistance
-        } else if (horizontalDistance > 760.0) {
-          const scale = 760.0 / horizontalDistance
+        } else if (horizontalDistance > 220.0) {
+          const scale = 220.0 / horizontalDistance
           dx *= scale
           dz *= scale
         }
@@ -429,14 +508,14 @@ export function StudioScene({
         dpr={Math.min(graphics.dpr, adaptiveDpr)}
         performance={{ min: 0.45, max: 1, debounce: 180 }}
         gl={{ antialias: graphics.antialias, powerPreference: 'high-performance', precision: 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 0.98 : 1.04, stencil: false, preserveDrawingBuffer: false }}
-        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: underwater ? (graphicsTier === 'mobile' ? 106 : 100) : graphicsTier === 'mobile' ? 52 : 48, near: 0.25, far: 12000 }}
+        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: underwater ? (graphicsTier === 'mobile' ? 86 : 78) : graphicsTier === 'mobile' ? 52 : 48, near: 0.25, far: 18000 }}
         onCreated={({ scene }) => {
           scene.background = new THREE.Color(underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7')
         }}
         onPointerMissed={() => { document.body.style.cursor = 'auto' }}
       >
         <fog attach="fog" args={underwater
-          ? ['#07506a', 650, 4300]
+          ? ['#07506a', 620, 5200]
           : [isNight ? '#0b1329' : '#d8edf5', 420, 1250]}
         />
 
@@ -471,7 +550,10 @@ export function StudioScene({
         <AdaptiveFrameGuard tier={graphicsTier} onSlowFrame={handleSlowFrame} />
 
         {underwater ? (
-          <UnderwaterWorld onPathClick={handlePathClick} quality={graphicsTier} playerPositionRef={localPositionRef} />
+          <>
+            <UnderwaterWorld quality={graphicsTier} playerPositionRef={localPositionRef} />
+            <UnderwaterPointerNavigator enabled={underwater} onNavigate={handleDiveNavigate} />
+          </>
         ) : (
           <>
             <Suspense fallback={null}><Outdoor onPathClick={handlePathClick} onPoolClick={handlePoolClick} onSeat={handleSeat} onRest={handleRest} onStand={handleStand} quality={graphicsTier} /></Suspense>
@@ -521,10 +603,10 @@ export function StudioScene({
           rotateSpeed={graphicsTier === 'mobile' ? 0.64 : 0.74}
           enableZoom
           zoomSpeed={1.12}
-          minDistance={underwater ? (graphicsTier === 'mobile' ? 8.0 : 7.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 170 : graphicsTier === 'balanced' ? 200 : 230) : graphicsTier === 'mobile' ? 52 : 56}
+          minDistance={underwater ? (graphicsTier === 'mobile' ? 5.5 : 5.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
+          maxDistance={underwater ? (graphicsTier === 'mobile' ? 1450 : graphicsTier === 'balanced' ? 1650 : 1800) : graphicsTier === 'mobile' ? 52 : 56}
           // Outdoors: keep the camera close to the horizon so looking upward
-          // cannot pass through the ground. Underwater keeps a wide 3D orbit range.
+          // cannot pass through the ground. Underwater remains a free 3D orbit.
           minPolarAngle={underwater ? 0.16 : 1.28}
           maxPolarAngle={underwater ? Math.PI - 0.16 : Math.PI / 2}
           target={DEFAULT_ORBIT_TARGET}
@@ -535,7 +617,7 @@ export function StudioScene({
       {underwater && (
         <div className="mpd-underwater-hud">
           <div className="mpd-underwater-title"><span className="mpd-underwater-live-dot" /> SCUBA EXPLORATION</div>
-          <div className="mpd-underwater-subtitle">최대 수심 약 900m · 수평 3.6km 탐험 · 360° 산호초 · 자유 잠수</div>
+          <div className="mpd-underwater-subtitle">최대 수심 약 900m · 8km 자유 탐험 · 360° 산호초</div>
           <button type="button" onClick={riseToSurface} className="mpd-surface-button">↑ 수면으로 올라와 스튜디오로 돌아가기</button>
         </div>
       )}

@@ -14,9 +14,9 @@ type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
 export const AVATAR_START = new THREE.Vector3(0, 0, 4.2)
 const SPEED = 4.25
-const UNDERWATER_INPUT_SPEED = 48.0
-const UNDERWATER_CLICK_SPEED = 64.0
-const UNDERWATER_VERTICAL_SPEED = 30.0
+const UNDERWATER_INPUT_SPEED = 92.0
+const UNDERWATER_CLICK_SPEED = 96.0
+const UNDERWATER_VERTICAL_SPEED = 78.0
 type MoveVector = { x: number; z: number; y?: number }
 const SKIN = '#f3cba5'
 const HOODIE = '#2f4a5a'
@@ -105,13 +105,13 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
     // Keep the avatar in a natural over-the-shoulder third-person frame.
     // The camera starts behind the avatar, not above its head, on land and underwater.
-    const distance = underwaterMode ? (coarse ? 25.0 : 22.0) : (coarse ? 9.8 : 8.4)
+    const distance = underwaterMode ? (coarse ? 28.0 : 25.0) : (coarse ? 9.8 : 8.4)
     const targetHeight = underwaterMode ? 1.24 : 1.18
-    const cameraHeight = underwaterMode ? (coarse ? 5.0 : 4.4) : 2.82
+    const cameraHeight = underwaterMode ? (coarse ? 4.0 : 3.6) : 2.82
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
       // Wider underwater lens shows more of the reef around the diver on portrait phones.
-      perspective.fov = underwaterMode ? (coarse ? 86 : 82) : (coarse ? 52 : 48)
+      perspective.fov = underwaterMode ? (coarse ? 88 : 80) : (coarse ? 52 : 48)
       perspective.updateProjectionMatrix()
     }
     controls.target.set(pos.x, pos.y + targetHeight, pos.z)
@@ -260,7 +260,8 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       if (direction.lengthSq() > 0.001) {
         direction.normalize()
         const speed = underwaterMode ? UNDERWATER_INPUT_SPEED : SPEED
-        const displacement = direction.clone().multiplyScalar(speed * dt)
+        const inputMagnitude = Math.min(1, inputLength)
+        const displacement = direction.clone().multiplyScalar(speed * dt * (underwaterMode ? Math.max(0.28, inputMagnitude) : 1))
         if (underwaterMode) {
           g.position.add(displacement)
           g.position.x = THREE.MathUtils.clamp(g.position.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
