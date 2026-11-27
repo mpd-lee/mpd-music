@@ -265,14 +265,107 @@ function createUnderwaterPanorama(quality: GraphicsTier) {
   return texture
 }
 
+
+function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsTier) {
+  if (typeof document === 'undefined') return source
+  const image = source.image as HTMLImageElement
+  const sourceWidth = image?.naturalWidth || image?.width || 0
+  const sourceHeight = image?.naturalHeight || image?.height || 0
+  if (!sourceWidth || !sourceHeight) return source
+
+  const width = quality === 'mobile' ? 1024 : 2048
+  const height = width / 2
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return source
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+
+  // The V32 reef photograph is retained. Only the outer 4.5% stretched photo
+  // margins are cropped; no horizontal neighbour averaging, blur, or added ray
+  // is used. Those broad pixel blends caused the vertical smeared column seen in
+  // the V33/V34 screenshots.
+  const crop = Math.round(sourceWidth * 0.075)
+  ctx.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
+  const frame = ctx.getImageData(0, 0, width, height)
+  const pixels = frame.data
+
+  // Reduce the photo's baked-in central sunshaft without blur or lateral pixel
+  // averaging. The attenuation is a smooth, location-aware luminance roll-off;
+  // it preserves every coral/sand edge and does not create a vertical smear.
+  const smoothstep = (a: number, b: number, value: number) => {
+    const t = THREE.MathUtils.clamp((value - a) / Math.max(0.0001, b - a), 0, 1)
+    return t * t * (3 - 2 * t)
+  }
+  for (let y = 0; y < height; y += 1) {
+    const v = y / height
+    const verticalMask = smoothstep(0.055, 0.22, v) * (1 - smoothstep(0.48, 0.66, v))
+    if (verticalMask <= 0.001) continue
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4
+      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2]
+      const luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
+      if (luminance < 72 || b < r * 1.18 || g < r * 1.10) continue
+      const u = x / width
+      const dx = (u - 0.405) / 0.155
+      const horizontalMask = Math.exp(-dx * dx * 1.45)
+      const brightMask = smoothstep(78, 165, luminance)
+      const attenuation = 0.58 * verticalMask * horizontalMask * brightMask
+      const gain = 1 - attenuation
+      pixels[i] = Math.round(r * gain)
+      pixels[i + 1] = Math.round(g * gain)
+      pixels[i + 2] = Math.round(b * gain)
+    }
+  }
+  // Clip only extreme cyan highlights after the shaft attenuation; never blur.
+  for (let y = 0; y < Math.floor(height * 0.58); y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4
+      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2]
+      const luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
+      if (luminance < 198 || b < r * 1.12 || g < r * 1.08) continue
+      const rolled = 198 + (luminance - 198) * 0.48
+      const gain = rolled / Math.max(1, luminance)
+      pixels[i] = Math.round(r * gain)
+      pixels[i + 1] = Math.round(g * gain)
+      pixels[i + 2] = Math.round(b * gain)
+    }
+  }
+  // Restore opaque alpha; the panorama itself must never contain a translucent
+  // vertical band that reveals the scene clear colour underneath.
+  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255
+  ctx.putImageData(frame, 0, 0)
+  // Close only the equirectangular left/right wrap seam. This narrow edge pass
+  // cannot affect the middle of the image where the previous vertical smear lived.
+  blendCanvasSeams(ctx, width, height, Math.max(8, Math.floor(width * 0.008)), false)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.mapping = THREE.EquirectangularReflectionMapping
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.repeat.set(1, 1)
+  texture.offset.set(0, 0)
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = true
+  texture.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 8 : 12
+  texture.needsUpdate = true
+  return texture
+}
+
 function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
   // The complete approved 2:1 underwater photograph is rendered as the scene's
   // equirectangular background. This avoids a far-plane / sphere-shell clipping
   // failure and prevents the 360 seam from appearing as a tiny blue crescent.
-  const texture = useTexture(quality === 'mobile'
+  const source = useTexture(quality === 'mobile'
     ? '/images/mpd-underwater-natural-v32-mobile.webp'
     : '/images/mpd-underwater-natural-v32.webp')
+  const texture = useMemo(() => createCleanUnderwaterPanorama(source, quality), [source, quality])
   const scene = useThree((state) => state.scene)
+  useEffect(() => () => { if (texture !== source) texture.dispose() }, [texture, source])
   useLayoutEffect(() => {
     const previousBackground = scene.background
     const previousRotation = scene.backgroundRotation.clone()
@@ -281,7 +374,8 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
     texture.mapping = THREE.EquirectangularReflectionMapping
     texture.wrapS = THREE.RepeatWrapping
     texture.wrapT = THREE.ClampToEdgeWrapping
-    texture.repeat.set(1, 1)
+    texture.repeat.set(1.0, 1.0)
+    texture.offset.set(0, 0)
     texture.minFilter = THREE.LinearMipmapLinearFilter
     texture.magFilter = THREE.LinearFilter
     texture.generateMipmaps = true
@@ -290,8 +384,8 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
     scene.background = texture
     // Aim the default over-the-shoulder forward view at the cave/reef centre,
     // rather than the smeared left/right edge of the equirectangular photograph.
-    scene.backgroundRotation.set(0, -2.28, 0)
-    scene.backgroundIntensity = quality === 'mobile' ? 0.72 : 0.76
+    scene.backgroundRotation.set(0, 0, 0)
+    scene.backgroundIntensity = quality === 'mobile' ? 0.74 : 0.76
     return () => {
       scene.background = previousBackground
       scene.backgroundRotation.copy(previousRotation)
@@ -907,24 +1001,24 @@ function Kelp({ position, seed }: { position: [number, number, number]; seed: nu
   )
 }
 
-function DiverMarineEscort({ playerPositionRef, quality }: {
+function DiverMarineEscort({ playerPositionRef, worldRootRef, quality }: {
   playerPositionRef: MutableRefObject<THREE.Vector3>
+  worldRootRef: { current: THREE.Group | null }
   quality: GraphicsTier
 }) {
   const group = useRef<THREE.Group>(null)
   useFrame((state, delta) => {
     const node = group.current
     if (!node) return
-    // This whole companion group trails the diver in local underwater-world space.
-    const player = playerPositionRef.current
+    // The fixed reef remains anchored at the dive entrance. Convert the diver's
+    // world position into this fixed root's local frame and keep the escort nearby.
+    const rootPosition = worldRootRef.current?.position ?? new THREE.Vector3()
+    const diver = playerPositionRef.current
     const time = state.clock.elapsedTime
-    const localX = player.x + 34
-    const localY = player.y + 2.2
-    const localZ = player.z - 14
     const target = new THREE.Vector3(
-      localX + Math.sin(time * 0.16) * 2.4,
-      THREE.MathUtils.clamp(localY - 2.2 + Math.sin(time * 0.24) * 0.8, UNDERWATER_MIN_Y + 35.0, -0.6),
-      localZ - 8.8 + Math.cos(time * 0.16) * 3.0,
+      diver.x - rootPosition.x + Math.sin(time * 0.16) * 2.4,
+      diver.y - rootPosition.y - 3.0 + Math.sin(time * 0.24) * 0.8,
+      diver.z - rootPosition.z - 8.8 + Math.cos(time * 0.16) * 3.0,
     )
     node.position.lerp(target, 1 - Math.exp(-Math.min(delta, 0.05) * 2.1))
     const dx = target.x - node.position.x
@@ -1028,13 +1122,74 @@ function Seabed({ quality, onPathClick }: { quality: GraphicsTier; onPathClick: 
   )
 }
 
-export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionRef }: {
-  onPathClick: (event: ThreeEvent<MouseEvent>) => void
+function StreamingReefField({ playerPositionRef, quality }: {
+  playerPositionRef: MutableRefObject<THREE.Vector3>
+  quality: GraphicsTier
+}) {
+  const chunks = useRef<(THREE.Group | null)[]>([])
+  const chunkSize = 150
+  const verticalBand = 180
+  const branchCount = quality === 'mobile' ? 2 : quality === 'balanced' ? 3 : 4
+  const schoolCount = quality === 'mobile' ? 9 : quality === 'balanced' ? 14 : 20
+  const chunkData = useMemo(() => Array.from({ length: 9 }, (_, index) => {
+    let seed = 4181 + index * 7919
+    const random = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646 }
+    return Array.from({ length: 4 }, (_, item) => ({
+      x: (random() - 0.5) * 112,
+      z: (random() - 0.5) * 112,
+      y: -12 - random() * 72,
+      tint: ['#a58f79', '#8da38b', '#8d9e91', '#b19b82'][Math.floor(random() * 4)],
+      seed: index * 97 + item * 31 + 11,
+      scale: 0.72 + random() * 0.62,
+      kelp: random() > 0.52,
+    }))
+  }), [])
+
+  useFrame(() => {
+    const diver = playerPositionRef.current
+    const cellX = Math.floor(diver.x / chunkSize)
+    const cellZ = Math.floor(diver.z / chunkSize)
+    const cellY = Math.round(diver.y / verticalBand)
+    let index = 0
+    for (let dz = -1; dz <= 1; dz += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const group = chunks.current[index]
+        if (group) {
+          group.position.set((cellX + dx) * chunkSize, cellY * verticalBand, (cellZ + dz) * chunkSize)
+        }
+        index += 1
+      }
+    }
+  })
+
+  return (
+    <group raycast={noRaycast} userData={{ mpdNoCollision: true }}>
+      {chunkData.map((items, index) => (
+        <group key={`streaming-reef-chunk-${index}`} ref={(node) => { chunks.current[index] = node }} raycast={noRaycast} userData={{ mpdNoCollision: true }}>
+          {items.slice(0, branchCount).map((item) => (
+            <CoralBranch key={`stream-coral-${item.seed}`} position={[item.x, item.y, item.z]} tint={item.tint} seed={item.seed} scale={item.scale} />
+          ))}
+          {items.filter((item) => item.kelp).slice(0, quality === 'mobile' ? 1 : 2).map((item) => (
+            <Kelp key={`stream-kelp-${item.seed}`} position={[item.x * 0.82, item.y - 2, item.z * 0.82]} seed={item.seed * 1.7} />
+          ))}
+          <InstancedFishSchool count={schoolCount} school={index + 61} baseDepth={-8} spreadX={58} spreadZ={58} />
+        </group>
+      ))}
+    </group>
+  )
+}
+
+export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
   quality?: GraphicsTier
   playerPositionRef?: MutableRefObject<THREE.Vector3>
 }) {
   // Keep the panoramic photograph as the distant 360-degree reef, and add a
   // restrained real 3D seabed plus separate reef outcrops so movement has depth cues.
+  // The original reef remains anchored at the pool entry point so it provides
+  // real world-space parallax when the diver swims past it. A separate 3x3
+  // streaming field below keeps fresh foreground scenery around the diver on
+  // long journeys without translating every old object along with the camera.
+  const worldRoot = useRef<THREE.Group>(null)
   const heroFishCount = quality === 'mobile' ? 10 : quality === 'balanced' ? 15 : 20
   // Wide, instanced schools extend into the distance without creating hundreds of draw calls.
   const schoolCounts = quality === 'mobile' ? [64, 42, 28, 16] : quality === 'balanced' ? [116, 76, 46, 28] : [180, 120, 76, 42]
@@ -1060,19 +1215,15 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
   }), [kelpCount])
 
   return (
-    <group position={[-34, -2.2, 14]}>
+    <>
+    <group ref={worldRoot} position={[-34, -2.2, 14]}>
       <ambientLight color="#83c7d4" intensity={quality === 'mobile' ? 0.38 : 0.44} />
       <hemisphereLight args={['#b9e4ed', '#203e45', 0.34]} />
       <directionalLight position={[-10, 18, 8]} color="#b7e8ed" intensity={0.16} />
       {/* Natural sunlight is already baked into the 360° photo. Avoid synthetic cones that read as blurry vertical bands. */}
 
-      {/* Wide transparent click volume: movement remains free in all 360 degrees. */}
-      <mesh onClick={onPathClick} renderOrder={-5}>
-        <sphereGeometry args={[10000, quality === 'mobile' ? 36 : 52, quality === 'mobile' ? 24 : 34]} />
-        <meshBasicMaterial color="#ffffff" transparent opacity={0} colorWrite={false} depthWrite={false} side={THREE.DoubleSide} />
-      </mesh>
       <UnderwaterDome quality={quality} />
-      <Seabed quality={quality} onPathClick={onPathClick} />
+      <group scale={1.12}>
       {Array.from({ length: rockCount }, (_, index) => (
         <ReefEscarpmentRock key={`reef-rock-${index}`} index={index} quality={quality} count={rockCount} baseY={-16.2} />
       ))}
@@ -1098,11 +1249,16 @@ export function UnderwaterWorld({ onPathClick, quality = 'high', playerPositionR
       {Array.from({ length: heroFishCount }, (_, i) => (
         <TropicalFish key={`hero-fish-${i}`} index={i % 3 === 0 ? i * 7 + 21 : i * 7 + 20} quality={quality} school={i % 3 + 1} baseDepth={-2.8 - (i % 3) * 1.0} />
       ))}
-      {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} quality={quality} />}
+      </group>
+      {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} worldRootRef={worldRoot} quality={quality} />}
 
       {/* Dispersed coral heads at different depths give the diver real near-field landmarks. */}
-      {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
-      {kelpPositions.map((position, i) => <Kelp key={`near-kelp-${i}`} position={position} seed={i * 7.7 + 91} />)}
+      <group scale={1.12}>
+        {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
+        {kelpPositions.map((position, i) => <Kelp key={`near-kelp-${i}`} position={position} seed={i * 7.7 + 91} />)}
+      </group>
     </group>
+    {playerPositionRef && <StreamingReefField playerPositionRef={playerPositionRef} quality={quality} />}
+    </>
   )
 }

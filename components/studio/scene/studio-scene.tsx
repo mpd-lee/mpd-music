@@ -76,6 +76,145 @@ type SeatHandler = (position: [number, number, number], rotationY: number, activ
 type RestHandler = (position: [number, number, number], rotationY: number) => void
 type MoveVector = { x: number; z: number; y?: number }
 
+function UnderwaterClickCatcher({
+  onNavigate,
+}: {
+  onNavigate: (direction: THREE.Vector3, pointerX: number, pointerY: number) => void
+}) {
+  const { camera, gl, raycaster } = useThree()
+  useEffect(() => {
+    const canvas = gl.domElement
+    const previousTouchAction = canvas.style.touchAction
+    // Keep mobile pointer events inside the 3D canvas. Without this, the browser
+    // may turn a one-finger tap/drag into page scrolling and send pointercancel.
+    canvas.style.touchAction = 'none'
+    let active: { id: number; x: number; y: number; startedAt: number; cancelled: boolean } | null = null
+
+    const isCanvasTarget = (target: EventTarget | null) => {
+      const node = target as Node | null
+      return Boolean(node && canvas.contains(node))
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!isCanvasTarget(event.target)) return
+      if (event.pointerType === 'mouse' && event.button !== 0) return
+      if (event.isPrimary === false || active) {
+        active = null // a second finger means camera pinch, never a move tap
+        return
+      }
+      active = {
+        id: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        startedAt: performance.now(),
+        cancelled: false,
+      }
+    }
+    const onPointerMove = (event: PointerEvent) => {
+      if (!active || active.id !== event.pointerId) return
+      if (Math.hypot(event.clientX - active.x, event.clientY - active.y) > 14) active.cancelled = true
+    }
+    const onPointerUp = (event: PointerEvent) => {
+      if (!active || active.id !== event.pointerId) return
+      const tap = active
+      active = null
+      if (tap.cancelled || performance.now() - tap.startedAt > 1500) return
+      const rect = canvas.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return
+      const pointerX = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      const pointerY = -(((event.clientY - rect.top) / rect.height) * 2 - 1)
+      if (pointerX < -1 || pointerX > 1 || pointerY < -1 || pointerY > 1) return
+      const pointer = new THREE.Vector2(pointerX, pointerY)
+      raycaster.setFromCamera(pointer, camera)
+      onNavigate(raycaster.ray.direction.clone(), pointerX, pointerY)
+    }
+    const onPointerCancel = (event: PointerEvent) => {
+      if (active?.id === event.pointerId) active = null
+    }
+
+    // Listen at window capture phase so a short canvas tap still navigates even
+    // when OrbitControls temporarily captures the pointer. A drag or pinch is
+    // left entirely to OrbitControls, while controls/panels outside the canvas
+    // are never intercepted.
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('pointermove', onPointerMove, true)
+    window.addEventListener('pointerup', onPointerUp, true)
+    window.addEventListener('pointercancel', onPointerCancel, true)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('pointermove', onPointerMove, true)
+      window.removeEventListener('pointerup', onPointerUp, true)
+      window.removeEventListener('pointercancel', onPointerCancel, true)
+      canvas.style.touchAction = previousTouchAction
+      active = null
+    }
+  }, [camera, gl, raycaster, onNavigate])
+  return null
+}
+
+function UnderwaterFovZoom({ enabled, mobile }: { enabled: boolean; mobile: boolean }) {
+  const { camera, gl } = useThree()
+  useEffect(() => {
+    if (!enabled || !(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return
+    const perspective = camera as THREE.PerspectiveCamera
+    const canvas = gl.domElement
+    const baseFov = mobile ? 56 : 54
+    perspective.fov = baseFov
+    perspective.updateProjectionMatrix()
+    const clampFov = () => {
+      perspective.fov = THREE.MathUtils.clamp(perspective.fov, 36, 70)
+      perspective.updateProjectionMatrix()
+    }
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault()
+      perspective.fov = THREE.MathUtils.clamp(perspective.fov + event.deltaY * 0.018, 36, 70)
+      perspective.updateProjectionMatrix()
+    }
+    const pointers = new Map<number, { x: number; y: number }>()
+    let lastPinchDistance = 0
+    const distance = () => {
+      const points = Array.from(pointers.values())
+      return points.length < 2 ? 0 : Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
+    }
+    const down = (event: PointerEvent) => {
+      if (!canvas.contains(event.target as Node)) return
+      if (event.pointerType !== 'touch') return
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (pointers.size === 2) lastPinchDistance = distance()
+    }
+    const move = (event: PointerEvent) => {
+      if (!pointers.has(event.pointerId)) return
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (pointers.size !== 2) return
+      const nextDistance = distance()
+      if (lastPinchDistance > 0 && nextDistance > 0) {
+        // Fingers spreading apart decreases FOV (zoom in); closing increases it.
+        perspective.fov = THREE.MathUtils.clamp(perspective.fov - (nextDistance - lastPinchDistance) * 0.045, 36, 70)
+        perspective.updateProjectionMatrix()
+      }
+      lastPinchDistance = nextDistance
+    }
+    const up = (event: PointerEvent) => {
+      pointers.delete(event.pointerId)
+      lastPinchDistance = pointers.size === 2 ? distance() : 0
+    }
+    canvas.addEventListener('wheel', wheel, { passive: false })
+    window.addEventListener('pointerdown', down, true)
+    window.addEventListener('pointermove', move, true)
+    window.addEventListener('pointerup', up, true)
+    window.addEventListener('pointercancel', up, true)
+    clampFov()
+    return () => {
+      canvas.removeEventListener('wheel', wheel)
+      window.removeEventListener('pointerdown', down, true)
+      window.removeEventListener('pointermove', move, true)
+      window.removeEventListener('pointerup', up, true)
+      window.removeEventListener('pointercancel', up, true)
+      pointers.clear()
+    }
+  }, [enabled, mobile, camera, gl])
+  return null
+}
+
 function AdaptiveFrameGuard({ tier, onSlowFrame }: { tier: GraphicsTier; onSlowFrame: () => void }) {
   const sample = useRef({ elapsed: 0, frames: 0, lastDowngrade: 0 })
   useFrame((_, delta) => {
@@ -95,70 +234,6 @@ function AdaptiveFrameGuard({ tier, onSlowFrame }: { tier: GraphicsTier; onSlowF
   return null
 }
 
-/**
- * V34 underwater zoom changes the PerspectiveCamera FOV instead of dollying
- * only the camera. This scales the avatar, reef and equirectangular panorama
- * together, so underwater zoom behaves like the outdoor view.
- */
-function UnderwaterZoomInput({ enabled }: { enabled: boolean }) {
-  const camera = useThree((state) => state.camera)
-  const dom = useThree((state) => state.gl.domElement)
-  useEffect(() => {
-    if (!enabled || !(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return
-    const perspective = camera as THREE.PerspectiveCamera
-    const pointers = new Map<number, { x: number; y: number }>()
-    let previousPinch = 0
-    const applyZoom = (delta: number) => {
-      perspective.fov = THREE.MathUtils.clamp(perspective.fov + delta, 46, 116)
-      perspective.updateProjectionMatrix()
-    }
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault()
-      const normalized = THREE.MathUtils.clamp(event.deltaY / 100, -4, 4)
-      applyZoom(normalized * 2.3)
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-      if (pointers.size === 2) {
-        const values = Array.from(pointers.values())
-        previousPinch = Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y)
-      }
-    }
-    const onPointerMove = (event: PointerEvent) => {
-      if (!pointers.has(event.pointerId)) return
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-      if (pointers.size < 2) return
-      const values = Array.from(pointers.values())
-      const nextPinch = Math.hypot(values[0].x - values[1].x, values[0].y - values[1].y)
-      if (previousPinch > 0 && nextPinch > 0) {
-        // Pinch-out zooms in (smaller FOV); pinch-in zooms out.
-        applyZoom((previousPinch - nextPinch) * 0.055)
-        event.preventDefault()
-      }
-      previousPinch = nextPinch
-    }
-    const clearPointer = (event: PointerEvent) => {
-      pointers.delete(event.pointerId)
-      previousPinch = 0
-    }
-    dom.addEventListener('wheel', onWheel, { passive: false })
-    dom.addEventListener('pointerdown', onPointerDown, { passive: false })
-    dom.addEventListener('pointermove', onPointerMove, { passive: false })
-    dom.addEventListener('pointerup', clearPointer)
-    dom.addEventListener('pointercancel', clearPointer)
-    dom.addEventListener('lostpointercapture', clearPointer)
-    return () => {
-      dom.removeEventListener('wheel', onWheel)
-      dom.removeEventListener('pointerdown', onPointerDown)
-      dom.removeEventListener('pointermove', onPointerMove)
-      dom.removeEventListener('pointerup', clearPointer)
-      dom.removeEventListener('pointercancel', clearPointer)
-      dom.removeEventListener('lostpointercapture', clearPointer)
-    }
-  }, [enabled, camera, dom])
-  return null
-}
 
 export function StudioScene({
   entries,
@@ -182,6 +257,7 @@ export function StudioScene({
   const workoutModeRef = useRef<FitnessKind | null>(null)
   const underwaterRef = useRef(false)
   const localPositionRef = useRef(new THREE.Vector3(0, 0, 4.2))
+  const localRotationRef = useRef(0)
   const pendingPoolEntry = useRef<{ x: number; z: number } | null>(null)
   // High-frequency joystick input is kept in a ref so every finger movement does not re-render the whole 3D scene.
   const moveVectorRef = useRef<MoveVector>({ x: 0, z: 0, y: 0 })
@@ -196,10 +272,11 @@ export function StudioScene({
 
   const handleLocalPosition = useCallback((position: [number, number, number], rotationY: number) => {
     localPositionRef.current.set(position[0], position[1], position[2])
+    localRotationRef.current = rotationY
     // Only the actual PoolWater mesh may initiate a dive. Walking or clicking on
     // the surrounding deck remains ordinary ground navigation, so the pool's
     // broad visual bounds cannot pull a nearby destination underwater.
-    if (underwaterRef.current && position[1] >= UNDERWATER_SURFACE_Y - 0.035) {
+    if (underwaterRef.current && position[1] >= UNDERWATER_SURFACE_Y - 0.02) {
       // Exit only at the actual waterline. The previous 0.10m threshold ended a
       // dive too early and made the ascent control feel as if it stopped working.
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
@@ -223,7 +300,7 @@ export function StudioScene({
       pendingPoolEntry.current = null
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       setSeatActivity(null)
-      setTravel((current) => current ? null : current)
+      setTravel(null)
     }
   }, [])
 
@@ -233,6 +310,9 @@ export function StudioScene({
       pendingPoolEntry.current = null
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       underwaterRef.current = true
+      // Seed the world/camera anchor before the underwater scene mounts. This
+      // prevents its first frame from anchoring at the old outdoor spawn point.
+      localPositionRef.current.set(poolTarget.x, -3.0, poolTarget.z)
       setUnderwater(true)
       setTravel({ position: new THREE.Vector3(poolTarget.x, -3.0, poolTarget.z), sit: false, instant: true })
       return
@@ -364,6 +444,41 @@ export function StudioScene({
     setTravel({ position: approach, sit: false })
   }, [])
 
+  const handleUnderwaterTap = useCallback((rayDirection: THREE.Vector3, pointerX: number, pointerY: number) => {
+    if (!underwaterRef.current) return
+    const current = localPositionRef.current.clone()
+    const direction = rayDirection.clone().normalize()
+    const horizontal = new THREE.Vector3(direction.x, 0, direction.z)
+    if (horizontal.lengthSq() < 0.0025) {
+      horizontal.set(Math.sin(localRotationRef.current), 0, Math.cos(localRotationRef.current))
+    }
+    horizontal.normalize()
+
+    // Short, visible swim targets are more responsive than the old 300-1,100m
+    // click jump. Repeated taps and joystick steering still explore the full world.
+    const distance = THREE.MathUtils.clamp(
+      135 + (1 - Math.abs(pointerY)) * 72 + Math.abs(pointerX) * 28,
+      105,
+      235,
+    )
+    // Screen top means ascent, screen bottom means descent. The actual camera ray
+    // contributes only a small amount so an oblique view remains intuitive.
+    const vertical = THREE.MathUtils.clamp(pointerY * 42 + direction.y * 16, -68, 68)
+    // A navigation tap must stay below the surface. Surface exit remains an
+    // explicit action on the existing return-to-studio button.
+    const clickDepth = THREE.MathUtils.clamp(current.y + vertical, UNDERWATER_MIN_Y, -0.82)
+    const destination = new THREE.Vector3(
+      THREE.MathUtils.clamp(current.x + horizontal.x * distance, UNDERWATER_MIN_X, UNDERWATER_MAX_X),
+      clickDepth,
+      THREE.MathUtils.clamp(current.z + horizontal.z * distance, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z),
+    )
+    pendingPoolEntry.current = null
+    moveVectorRef.current = { x: 0, z: 0, y: 0 }
+    setSeatActivity(null)
+    window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+    setTravel({ position: destination, sit: false })
+  }, [])
+
   const handlePathClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta > CLICK_DRAG_TOLERANCE) return
@@ -371,32 +486,51 @@ export function StudioScene({
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
 
     if (underwaterRef.current) {
-      // Use the actual camera ray for both mouse clicks and touch taps.
-      // The destination is projected beyond the diver, not onto the far side
-      // of a huge invisible sphere or a nearly parallel depth plane.
-      const current = localPositionRef.current.clone()
-      const rayDirection = e.ray.direction.clone().normalize()
-      const horizontalDirection = new THREE.Vector3(rayDirection.x, 0, rayDirection.z)
-      if (horizontalDirection.lengthSq() < 0.0025) {
-        horizontalDirection.set(0, 0, 1)
-      }
-      horizontalDirection.normalize()
+      // Convert the clicked screen position into an explicit 3D swim destination.
+      // The previous approach blended vertical intent with a far-away sphere hit;
+      // on a perspective camera that often produced almost no depth change.
+      // Here the screen's vertical coordinate maps directly to water depth, while
+      // the ray's horizontal direction selects the swimming direction. Mouse and
+      // touch therefore use the same deterministic 3-axis destination.
+      const current = localPositionRef.current
       const pointerY = THREE.MathUtils.clamp(e.pointer.y, -1, 1)
-      const pointerX = THREE.MathUtils.clamp(e.pointer.x, -1, 1)
-      const travelDistance = 125 + Math.abs(pointerX) * 55 + Math.abs(pointerY) * 45
-      const verticalDelta = pointerY * 112 + rayDirection.y * 24
-      const destination = new THREE.Vector3(
-        THREE.MathUtils.clamp(current.x + horizontalDirection.x * travelDistance, UNDERWATER_MIN_X, UNDERWATER_MAX_X),
-        THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 1.1),
-        THREE.MathUtils.clamp(current.z + horizontalDirection.z * travelDistance, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z),
-      )
-      if (destination.distanceTo(current) < 12) {
-        destination.addScaledVector(horizontalDirection, 80)
-        destination.x = THREE.MathUtils.clamp(destination.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
-        destination.z = THREE.MathUtils.clamp(destination.z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
+      // Touch/click depth is deliberately bounded: top of the screen means rise,
+      // bottom means descend. A single tap must never send the diver hundreds of
+      // metres away or create an unreachable route beyond the visible reef.
+      const rayVertical = THREE.MathUtils.clamp(e.ray.direction.y, -0.72, 0.72)
+      const verticalDelta = THREE.MathUtils.clamp(pointerY * 44.0 + rayVertical * 14.0, -70.0, 70.0)
+      const swimY = THREE.MathUtils.clamp(current.y + verticalDelta, UNDERWATER_MIN_Y, -0.82)
+      const depthPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -swimY)
+      const tappedPoint = new THREE.Vector3()
+      const planeHit = e.ray.intersectPlane(depthPlane, tappedPoint)
+      const horizontalDirection = e.ray.direction.clone()
+      horizontalDirection.y = 0
+      if (horizontalDirection.lengthSq() < 0.0025) horizontalDirection.set(0, 0, -1)
+      horizontalDirection.normalize()
+      const fallbackDistance = 84.0 + (1 - Math.abs(pointerY)) * 34.0
+      let dx: number
+      let dz: number
+      if (planeHit && Number.isFinite(tappedPoint.x) && Number.isFinite(tappedPoint.z)) {
+        dx = tappedPoint.x - current.x
+        dz = tappedPoint.z - current.z
+        const horizontalDistance = Math.hypot(dx, dz)
+        if (horizontalDistance < 8.0) {
+          dx = horizontalDirection.x * fallbackDistance
+          dz = horizontalDirection.z * fallbackDistance
+        } else if (horizontalDistance > 220.0) {
+          const scale = 220.0 / horizontalDistance
+          dx *= scale
+          dz *= scale
+        }
+      } else {
+        dx = horizontalDirection.x * fallbackDistance
+        dz = horizontalDirection.z * fallbackDistance
       }
-      pendingPoolEntry.current = null
-      setTravel({ position: destination, sit: false })
+      let x = current.x + dx
+      let z = current.z + dz
+      x = THREE.MathUtils.clamp(x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
+      z = THREE.MathUtils.clamp(z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
+      setTravel({ position: new THREE.Vector3(x, swimY, z), sit: false })
       return
     }
 
@@ -479,14 +613,14 @@ export function StudioScene({
         dpr={Math.min(graphics.dpr, adaptiveDpr)}
         performance={{ min: 0.45, max: 1, debounce: 180 }}
         gl={{ antialias: graphics.antialias, powerPreference: 'high-performance', precision: 'highp', toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: underwater ? 0.98 : 1.04, stencil: false, preserveDrawingBuffer: false }}
-        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: underwater ? (graphicsTier === 'mobile' ? 110 : 104) : graphicsTier === 'mobile' ? 52 : 48, near: 0.25, far: 12000 }}
+        camera={{ position: [AVATAR_START.x, 3.25, AVATAR_START.z + 9.2], fov: graphicsTier === 'mobile' ? 52 : 50, near: 0.25, far: 26000 }}
         onCreated={({ scene }) => {
           scene.background = new THREE.Color(underwater ? '#075a79' : isNight ? '#12253d' : '#84bde7')
         }}
         onPointerMissed={() => { document.body.style.cursor = 'auto' }}
       >
         <fog attach="fog" args={underwater
-          ? ['#07506a', 850, 9200]
+          ? ['#07506a', 2600, 18000]
           : [isNight ? '#0b1329' : '#d8edf5', 420, 1250]}
         />
 
@@ -521,7 +655,11 @@ export function StudioScene({
         <AdaptiveFrameGuard tier={graphicsTier} onSlowFrame={handleSlowFrame} />
 
         {underwater ? (
-          <UnderwaterWorld onPathClick={handlePathClick} quality={graphicsTier} playerPositionRef={localPositionRef} />
+          <>
+            <UnderwaterWorld quality={graphicsTier} playerPositionRef={localPositionRef} />
+            <UnderwaterClickCatcher onNavigate={handleUnderwaterTap} />
+            <UnderwaterFovZoom enabled={underwater} mobile={graphicsTier === 'mobile'} />
+          </>
         ) : (
           <>
             <Suspense fallback={null}><Outdoor onPathClick={handlePathClick} onPoolClick={handlePoolClick} onSeat={handleSeat} onRest={handleRest} onStand={handleStand} quality={graphicsTier} /></Suspense>
@@ -571,22 +709,21 @@ export function StudioScene({
           rotateSpeed={graphicsTier === 'mobile' ? 0.64 : 0.74}
           enableZoom={!underwater}
           zoomSpeed={1.12}
-          minDistance={underwater ? (graphicsTier === 'mobile' ? 8.0 : 7.0) : graphicsTier === 'mobile' ? 4.0 : 3.8}
-          maxDistance={underwater ? (graphicsTier === 'mobile' ? 1650 : graphicsTier === 'balanced' ? 1850 : 2050) : graphicsTier === 'mobile' ? 52 : 56}
+          minDistance={graphicsTier === 'mobile' ? 4.0 : 3.8}
+          maxDistance={graphicsTier === 'mobile' ? 52 : 56}
           // Outdoors: keep the camera close to the horizon so looking upward
           // cannot pass through the ground. Underwater remains a free 3D orbit.
           minPolarAngle={underwater ? 0.16 : 1.28}
           maxPolarAngle={underwater ? Math.PI - 0.16 : Math.PI / 2}
           target={DEFAULT_ORBIT_TARGET}
         />
-        <UnderwaterZoomInput enabled={underwater} />
       </Canvas>
 
       <PlayerControls onMove={handleMoveVector} underwater={underwater} />
       {underwater && (
         <div className="mpd-underwater-hud">
           <div className="mpd-underwater-title"><span className="mpd-underwater-live-dot" /> SCUBA EXPLORATION</div>
-          <div className="mpd-underwater-subtitle">최대 수심 약 600m · 360° 산호초 · 자연 암굴 · 넓은 자유 잠수</div>
+          <div className="mpd-underwater-subtitle">수평 100km × 100km · 최대 수심 8,000m · 360° 산호초 탐험</div>
           <button type="button" onClick={riseToSurface} className="mpd-surface-button">↑ 수면으로 올라와 스튜디오로 돌아가기</button>
         </div>
       )}

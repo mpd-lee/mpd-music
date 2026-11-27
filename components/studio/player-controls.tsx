@@ -15,6 +15,11 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   const vertical = useRef(0)
   const lastPublished = useRef<Vector>(ZERO)
   const activePointer = useRef<number | null>(null)
+  const axisPressStartedAt = useRef(0)
+  const axisReleaseTimer = useRef<number | null>(null)
+  const joystickPressStartedAt = useRef(0)
+  const joystickMoved = useRef(false)
+  const joystickReleaseTimer = useRef<number | null>(null)
   const [thumb, setThumb] = useState({ x: 0, y: 0 })
 
   const publish = useCallback(() => {
@@ -27,9 +32,9 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     const length = Math.hypot(x, z)
     if (length > 1) { x /= length; z /= length }
     const y = underwater ? vertical.current : 0
-    const next = length < 0.04 && Math.abs(y) < 0.04 ? ZERO : { x, z, y }
-    // V34: publish every real control change immediately. A dead-zone comparison
-    // against the previous vector could suppress short touch/joystick movement.
+    const next = length < 0.018 && Math.abs(y) < 0.018 ? ZERO : { x, z, y }
+    // Publish every control transition. Do not suppress small but intentional
+    // joystick movements; the Avatar applies its own 3D movement dead-zone.
     lastPublished.current = next
     onMove(next)
   }, [onMove, underwater])
@@ -74,6 +79,8 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     window.addEventListener('keyup', up)
     window.addEventListener('blur', blur)
     return () => {
+      if (axisReleaseTimer.current !== null) window.clearTimeout(axisReleaseTimer.current)
+      if (joystickReleaseTimer.current !== null) window.clearTimeout(joystickReleaseTimer.current)
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', blur)
@@ -90,6 +97,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     const length = Math.hypot(x, y)
     if (length > 1) { x /= length; y /= length }
     stick.current = { x, z: y }
+    if (length > 0.12) joystickMoved.current = true
     setThumb({ x: x * radius * 0.78, y: y * radius * 0.78 })
     publish()
   }
@@ -97,10 +105,24 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   const stopStick = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (activePointer.current !== event.pointerId) return
     activePointer.current = null
-    stick.current = ZERO
-    setThumb({ x: 0, y: 0 })
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-    publish()
+    if (joystickReleaseTimer.current !== null) window.clearTimeout(joystickReleaseTimer.current)
+    // A simple tap on the joystick gives a short forward swim nudge; dragging
+    // remains continuous 360-degree steering. This avoids a dead-feeling center tap.
+    if (!joystickMoved.current && underwater) {
+      stick.current = { x: 0, z: -0.92 }
+      publish()
+      joystickReleaseTimer.current = window.setTimeout(() => {
+        stick.current = ZERO
+        setThumb({ x: 0, y: 0 })
+        publish()
+        joystickReleaseTimer.current = null
+      }, Math.max(500, 900 - (performance.now() - joystickPressStartedAt.current)))
+    } else {
+      stick.current = ZERO
+      setThumb({ x: 0, y: 0 })
+      publish()
+    }
   }
 
   const setDiveAxis = (value: number) => {
@@ -110,12 +132,36 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   const startDiveAxis = (event: ReactPointerEvent<HTMLButtonElement>, value: number) => {
     event.preventDefault()
     event.stopPropagation()
+    if (axisReleaseTimer.current !== null) {
+      window.clearTimeout(axisReleaseTimer.current)
+      axisReleaseTimer.current = null
+    }
+    axisPressStartedAt.current = performance.now()
     try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* browser may already own the pointer */ }
     setDiveAxis(value)
   }
   const stopDiveAxis = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    setDiveAxis(0)
+    const elapsed = performance.now() - axisPressStartedAt.current
+    const minimumTapMs = 520
+    const release = () => {
+      setDiveAxis(0)
+      axisReleaseTimer.current = null
+      axisPressStartedAt.current = 0
+    }
+    if (axisReleaseTimer.current === null && elapsed > 0 && elapsed < minimumTapMs) {
+      axisReleaseTimer.current = window.setTimeout(release, minimumTapMs - elapsed)
+    } else if (axisReleaseTimer.current === null) {
+      release()
+    }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  }
+
+  const handleDiveLostCapture = () => {
+    // pointerup has already scheduled or completed the minimum tap pulse.
+    // Only stop if the browser unexpectedly revoked capture while still pressed.
+    if (axisReleaseTimer.current !== null || axisPressStartedAt.current === 0) return
+    setDiveAxis(0)
+    axisPressStartedAt.current = 0
   }
 
   return (
@@ -129,15 +175,29 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
         <div
           ref={baseRef}
           className="mpd-joystick-base"
+          style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'auto' }}
+          onContextMenu={(event) => event.preventDefault()}
           onPointerDown={(event) => {
             event.preventDefault()
             event.stopPropagation()
             if (activePointer.current !== null) return
             activePointer.current = event.pointerId
+            joystickPressStartedAt.current = performance.now()
+            joystickMoved.current = false
+            if (joystickReleaseTimer.current !== null) {
+              window.clearTimeout(joystickReleaseTimer.current)
+              joystickReleaseTimer.current = null
+            }
             try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* browser may already own the pointer */ }
             updateStick(event)
+            publish()
           }}
-          onPointerMove={(event) => { if (activePointer.current === event.pointerId) updateStick(event) }}
+          onPointerMove={(event) => {
+            if (activePointer.current !== event.pointerId) return
+            event.preventDefault()
+            event.stopPropagation()
+            updateStick(event)
+          }}
           onPointerUp={stopStick}
           onPointerCancel={stopStick}
           onLostPointerCapture={(event) => { if (activePointer.current === event.pointerId) stopStick(event) }}
@@ -150,9 +210,9 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
           <span className="mpd-joystick-caption">MOVE</span>
         </div>
         {underwater && (
-          <div className="mpd-dive-axis" aria-label="수중 위아래 이동">
-            <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowUp size={13} /> 상승</button>
-            <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={() => setDiveAxis(0)}><ArrowDown size={13} /> 하강</button>
+          <div className="mpd-dive-axis" aria-label="수중 위아래 이동" style={{ touchAction: 'none', pointerEvents: 'auto' }}>
+            <button type="button" style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }} onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}><ArrowUp size={13} /> 상승</button>
+            <button type="button" style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }} onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}><ArrowDown size={13} /> 하강</button>
             <small>두 손가락: 시야 줌</small>
           </div>
         )}

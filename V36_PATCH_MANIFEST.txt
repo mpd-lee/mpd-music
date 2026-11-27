@@ -1,0 +1,14 @@
+MPD MUSIC STUDIO WORLD V36 PATCH MANIFEST
+
+Files applied (8):
+- components/studio/scene/outdoor.tsx
+- components/studio/scene/underwater-world.tsx
+- components/studio/scene/studio-scene.tsx
+- components/studio/scene/avatar.tsx
+- components/studio/player-controls.tsx
+- lib/world-depth.ts
+- V36_CHANGELOG_KR.txt
+- V36_PATCH_MANIFEST.txt
+
+Intentionally untouched: app/globals.css, components/studio/chat-panel.tsx, components/studio/studio-app.tsx, all environment variables.
+Required existing V32 assets: mpd-sky-panorama-v32(.webp/mobile), mpd-front-coastal-bay(.webp/mobile), mpd-underwater-natural-v32(.webp/mobile), mpd-forest-photo-v27(.webp/mobile).

@@ -140,13 +140,131 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   return blended
 }
 
+function createCloudFilledSkyTexture(skySource: THREE.Texture, coastSource: THREE.Texture, quality: GraphicsTier) {
+  if (typeof document === 'undefined') return skySource
+  const skyImage = skySource.image as HTMLImageElement
+  const coastImage = coastSource.image as HTMLImageElement
+  const skyW = skyImage?.naturalWidth || skyImage?.width || 0
+  const skyH = skyImage?.naturalHeight || skyImage?.height || 0
+  const coastW = coastImage?.naturalWidth || coastImage?.width || 0
+  const coastH = coastImage?.naturalHeight || coastImage?.height || 0
+  if (!skyW || !skyH || !coastW || !coastH) return skySource
+
+  const width = quality === 'mobile' ? 1024 : 2048
+  const height = width / 2
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) return skySource
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(skyImage, 0, 0, skyW, skyH, 0, 0, width, height)
+
+  // Fill the broad blue void with the clean central cloud field from the existing
+  // coastal photograph. This is an OPAQUE colour blend, not a transparency mask:
+  // no forest pixel threshold can accidentally punch a larger hole in the sky.
+  const base = ctx.getImageData(0, 0, width, height)
+  const basePixels = base.data
+  const cloud = document.createElement('canvas')
+  cloud.width = width
+  cloud.height = height
+  const cloudCtx = cloud.getContext('2d', { willReadFrequently: true })
+  if (!cloudCtx) return skySource
+  cloudCtx.imageSmoothingEnabled = true
+  cloudCtx.imageSmoothingQuality = 'high'
+
+  // The centre 50% of the coast photo contains open sky and clouds, away from
+  // the left/right tree canopy and below the bright sun flare.
+  const sx = Math.round(coastW * 0.25)
+  const sw = Math.round(coastW * 0.50)
+  const sy = Math.round(coastH * 0.135)
+  const sh = Math.round(coastH * 0.305)
+  const overlayHeight = Math.round(height * 0.88)
+  cloudCtx.drawImage(coastImage, sx, sy, sw, sh, 0, 0, width, overlayHeight)
+  const cloudFrame = cloudCtx.getImageData(0, 0, width, overlayHeight)
+  const cp = cloudFrame.data
+  const smooth = (a: number, b: number, x: number) => {
+    const t = THREE.MathUtils.clamp((x - a) / Math.max(0.0001, b - a), 0, 1)
+    return t * t * (3 - 2 * t)
+  }
+
+  // Dense cloud fill over the previously empty zone, then a long lower feather
+  // into the original equirectangular sky. Every output pixel remains opaque.
+  for (let y = 0; y < overlayHeight; y += 1) {
+    const vertical = 0.96 * (1 - smooth(overlayHeight * 0.84, overlayHeight, y))
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4
+      const r = cp[i], g = cp[i + 1], b = cp[i + 2]
+      // Reduce any remaining edge foliage/green contamination without making
+      // transparent pixels. Blend those few pixels back toward the original sky.
+      const foliage = g > r * 1.12 && g > b * 1.08 && (g - r) > 18
+      const confidence = foliage ? 0.10 : 1
+      const blend = vertical * confidence
+      basePixels[i] = Math.round(basePixels[i] * (1 - blend) + r * blend)
+      basePixels[i + 1] = Math.round(basePixels[i + 1] * (1 - blend) + g * blend)
+      basePixels[i + 2] = Math.round(basePixels[i + 2] * (1 - blend) + b * blend)
+      basePixels[i + 3] = 255
+    }
+  }
+
+  // Close the equirectangular left/right seam with a very narrow blend. The
+  // previous alpha-cut cloud mask created a pale ring around the zenith; this
+  // pass changes colour only and never changes alpha.
+  const seamBand = Math.max(8, Math.floor(width * 0.012))
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < seamBand; x += 1) {
+      const weight = (1 - x / seamBand) * 0.22
+      const li = (y * width + x) * 4
+      const ri = (y * width + (width - seamBand + x)) * 4
+      for (let c = 0; c < 3; c += 1) {
+        const average = (basePixels[li + c] + basePixels[ri + c]) * 0.5
+        basePixels[li + c] = Math.round(basePixels[li + c] * (1 - weight) + average * weight)
+        basePixels[ri + c] = Math.round(basePixels[ri + c] * (1 - weight) + average * weight)
+      }
+    }
+  }
+  // Stabilise the pole itself without smearing the cloud layer below it.
+  const capRows = Math.max(3, Math.floor(height * 0.006))
+  const sampleY = Math.min(height - 1, capRows * 3)
+  const mean = [0, 0, 0]
+  for (let x = 0; x < width; x += 1) {
+    const i = (sampleY * width + x) * 4
+    mean[0] += basePixels[i]; mean[1] += basePixels[i + 1]; mean[2] += basePixels[i + 2]
+  }
+  for (let c = 0; c < 3; c += 1) mean[c] /= width
+  for (let y = 0; y < capRows; y += 1) {
+    const t = 1 - y / capRows
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4
+      for (let c = 0; c < 3; c += 1) basePixels[i + c] = Math.round(basePixels[i + c] * (1 - t) + mean[c] * t)
+      basePixels[i + 3] = 255
+    }
+  }
+  ctx.putImageData(base, 0, 0)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.mapping = THREE.EquirectangularReflectionMapping
+  texture.wrapS = THREE.RepeatWrapping
+  texture.wrapT = THREE.ClampToEdgeWrapping
+  texture.minFilter = THREE.LinearMipmapLinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = true
+  texture.anisotropy = quality === 'mobile' ? 2 : 12
+  texture.needsUpdate = true
+  return texture
+}
+
 function SkyCanopy({ quality }: { quality: GraphicsTier }) {
-  // Use a real equirectangular scene background instead of a distant mesh.
-  // The background is infinitely distant and cannot leave a blue gap above the forest.
-  const texture = useTexture(quality === 'mobile'
-    ? '/images/mpd-sky-panorama-v32-mobile.webp'
-    : '/images/mpd-sky-panorama-v32.webp')
+  const sources = useTexture([
+    quality === 'mobile' ? '/images/mpd-sky-panorama-v32-mobile.webp' : '/images/mpd-sky-panorama-v32.webp',
+    quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp',
+  ]) as THREE.Texture[]
+  const [skySource, coastSource] = sources
+  const texture = useMemo(() => createCloudFilledSkyTexture(skySource, coastSource, quality), [skySource, coastSource, quality])
   const scene = useThree((state) => state.scene)
+  useEffect(() => () => { if (texture !== skySource) texture.dispose() }, [texture, skySource])
   useLayoutEffect(() => {
     const previousBackground = scene.background
     const previousRotation = scene.backgroundRotation.clone()
@@ -161,8 +279,6 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
     texture.anisotropy = quality === 'mobile' ? 2 : 12
     texture.needsUpdate = true
     scene.background = texture
-    // The central sky from the front coastal photograph faces the entry view.
-    // The pano continues the same sky over the forest roof without a finite dome edge.
     scene.backgroundRotation.set(0, -Math.PI / 2, 0)
     scene.backgroundIntensity = 1.0
     return () => {
@@ -180,13 +296,13 @@ function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   // Use the exact same radius and vertical centre as ForestPanorama. The coastal arc
   // overlaps the forest arc by about 10 degrees at each end, and the feathered coast
   // edges reveal the forest underneath without a radial step or a flat-card intersection.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(340, 340, 244, quality === 'mobile' ? 56 : 96, 1, true, Math.PI - 0.92, 1.84), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(260, 260, 120, quality === 'mobile' ? 64 : 112, 1, true, Math.PI - 0.92, 1.84), [quality])
   useEffect(() => () => {
     if (image !== source) image.dispose()
     geometry.dispose()
   }, [image, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, 18, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, 17, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
       <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.BackSide} depthWrite={false} />
     </mesh>
   )
@@ -315,23 +431,9 @@ function createGreenForestTexture(source: THREE.Texture, coastalSource: THREE.Te
     }
   }
 
-  // V34: the old forest cylinder displayed the photo's solid upper canopy as a
-  // flat green ceiling. Fade only the top edge of that photograph into the true
-  // equirectangular sky behind it. The fade is gradual, so there is no hard ring
-  // or circular cutout when the camera looks upward.
-  const fadeStart = 0.035
-  const fadeEnd = 0.485
-  for (let y = 0; y < height; y += 1) {
-    const v = y / Math.max(1, height - 1)
-    const t0 = THREE.MathUtils.clamp((v - fadeStart) / (fadeEnd - fadeStart), 0, 1)
-    const alpha = t0 * t0 * (3 - 2 * t0)
-    if (alpha >= 0.999) continue
-    const row = y * width * 4
-    for (let x = 0; x < width; x += 1) {
-      const index = row + x * 4 + 3
-      pixels[index] = Math.round(pixels[index] * alpha)
-    }
-  }
+  // Keep the forest belt fully opaque. A transparent top band created a large
+  // pale opening/halo where the equirectangular sky met the canopy.
+  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255
 
   context.putImageData(frame, 0, 0)
   const corrected = new THREE.CanvasTexture(canvas)
@@ -352,14 +454,14 @@ function ForestPanorama({ quality }: { quality: GraphicsTier }) {
   const coastalSource = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const texture = useMemo(() => createGreenForestTexture(source, coastalSource, quality), [source, coastalSource, quality])
   // Increase the angular overlap so the coastal fade always reveals real forest texture.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(340, 340, 244, quality === 'mobile' ? 64 : 112, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(260, 260, 120, quality === 'mobile' ? 72 : 128, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
   }, [texture, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, 18, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
-      <meshBasicMaterial map={texture} transparent side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} />
+    <mesh geometry={geometry} position={[0, 17, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
+      <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} />
     </mesh>
   )
 }
