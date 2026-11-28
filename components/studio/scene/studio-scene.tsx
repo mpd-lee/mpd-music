@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { Environment, OrbitControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
@@ -140,70 +140,6 @@ function UnderwaterClickCatcher({
   return null
 }
 
-function UnderwaterFovZoom({ enabled, mobile }: { enabled: boolean; mobile: boolean }) {
-  const { camera, gl } = useThree()
-  useEffect(() => {
-    if (!enabled || !(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return
-    const perspective = camera as THREE.PerspectiveCamera
-    const canvas = gl.domElement
-    const baseFov = mobile ? 54 : 52
-    perspective.fov = baseFov
-    perspective.updateProjectionMatrix()
-    const clampFov = () => {
-      perspective.fov = THREE.MathUtils.clamp(perspective.fov, 34, 72)
-      perspective.updateProjectionMatrix()
-    }
-    const wheel = (event: WheelEvent) => {
-      event.preventDefault()
-      perspective.fov = THREE.MathUtils.clamp(perspective.fov + event.deltaY * 0.018, 34, 72)
-      perspective.updateProjectionMatrix()
-    }
-    const pointers = new Map<number, { x: number; y: number }>()
-    let lastPinchDistance = 0
-    const distance = () => {
-      const points = Array.from(pointers.values())
-      return points.length < 2 ? 0 : Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
-    }
-    const down = (event: PointerEvent) => {
-      if (!canvas.contains(event.target as Node)) return
-      if (event.pointerType !== 'touch') return
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-      if (pointers.size === 2) lastPinchDistance = distance()
-    }
-    const move = (event: PointerEvent) => {
-      if (!pointers.has(event.pointerId)) return
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
-      if (pointers.size !== 2) return
-      const nextDistance = distance()
-      if (lastPinchDistance > 0 && nextDistance > 0) {
-        // Fingers spreading apart decreases FOV (zoom in); closing increases it.
-        perspective.fov = THREE.MathUtils.clamp(perspective.fov - (nextDistance - lastPinchDistance) * 0.045, 34, 72)
-        perspective.updateProjectionMatrix()
-      }
-      lastPinchDistance = nextDistance
-    }
-    const up = (event: PointerEvent) => {
-      pointers.delete(event.pointerId)
-      lastPinchDistance = pointers.size === 2 ? distance() : 0
-    }
-    canvas.addEventListener('wheel', wheel, { passive: false })
-    window.addEventListener('pointerdown', down, true)
-    window.addEventListener('pointermove', move, true)
-    window.addEventListener('pointerup', up, true)
-    window.addEventListener('pointercancel', up, true)
-    clampFov()
-    return () => {
-      canvas.removeEventListener('wheel', wheel)
-      window.removeEventListener('pointerdown', down, true)
-      window.removeEventListener('pointermove', move, true)
-      window.removeEventListener('pointerup', up, true)
-      window.removeEventListener('pointercancel', up, true)
-      pointers.clear()
-    }
-  }, [enabled, mobile, camera, gl])
-  return null
-}
-
 function AdaptiveFrameGuard({ tier, onSlowFrame }: { tier: GraphicsTier; onSlowFrame: () => void }) {
   const sample = useRef({ elapsed: 0, frames: 0, lastDowngrade: 0 })
   useFrame((_, delta) => {
@@ -248,9 +184,7 @@ export function StudioScene({
   const localPositionRef = useRef(new THREE.Vector3(0, 0, 4.2))
   const localRotationRef = useRef(0)
   const pendingPoolEntry = useRef<{ x: number; z: number } | null>(null)
-  const avatarRootRef = useRef<THREE.Group | null>(null)
-  const underwaterTargetRef = useRef<THREE.Vector3 | null>(null)
-  // High-frequency input is read directly by Avatar without React re-renders.
+  // Shared input ref: PlayerControls writes once; Avatar owns the underwater motion loop.
   const moveVectorRef = useRef<MoveVector>({ x: 0, z: 0, y: 0 })
   const [graphicsTier, setGraphicsTier] = useState<GraphicsTier | null>(null)
   const [adaptiveDpr, setAdaptiveDpr] = useState(0.9)
@@ -262,38 +196,205 @@ export function StudioScene({
   const handleLocalPosition = useCallback((position: [number, number, number], rotationY: number) => {
     localPositionRef.current.set(position[0], position[1], position[2])
     localRotationRef.current = rotationY
-    // Only the actual PoolWater mesh may initiate a dive. Walking or clicking on
-    // the surrounding deck remains ordinary ground navigation, so the pool's
-    // broad visual bounds cannot pull a nearby destination underwater.
-    if (underwaterRef.current && position[1] >= UNDERWATER_SURFACE_Y - 0.02) {
-      // Exit only at the actual waterline. The previous 0.10m threshold ended a
-      // dive too early and made the ascent control feel as if it stopped working.
-      window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
-      underwaterRef.current = false
-      underwaterTargetRef.current = null
-      moveVectorRef.current = { x: 0, z: 0, y: 0 }
-      setUnderwater(false)
-      setTravel({
-        position: new THREE.Vector3(THREE.MathUtils.clamp(position[0], -42.0, -26.0), 0.03, 9.0),
-        sit: false,
-        instant: true,
-      })
-    }
+    // Reaching the shallow-water ceiling no longer silently exits the dive.
+    // The diver can swim freely just below the surface; only the explicit
+    // 'return to studio' action leaves underwater mode.
     onLocalPosition(position, rotationY)
   }, [onLocalPosition])
 
   const handleMoveVector = useCallback((value: MoveVector) => {
+    // The ref is the single low-latency input channel shared by PlayerControls and Avatar.
     moveVectorRef.current = { x: value.x, z: value.z, y: value.y ?? 0 }
-    // Avatar reads this ref every frame in the single underwater movement loop.
-    // Manual input cancels click destinations and land routes immediately.
     if (Math.hypot(value.x, value.z) > 0.018 || Math.abs(value.y ?? 0) > 0.018) {
-      underwaterTargetRef.current = null
       pendingPoolEntry.current = null
-      window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
-      setSeatActivity(null)
-      setTravel(null)
+      // While diving, do not cause a React render for every joystick/keyboard update.
+      // Avatar cancels its own 3D click route imperatively in the animation frame.
+      if (!underwaterRef.current) {
+        window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+        setSeatActivity(null)
+        setTravel((current) => current ? null : current)
+      }
     }
   }, [])
+
+  // Native capture-phase fallback for underwater controls. This intentionally
+  // writes to the same ref as PlayerControls, but does not depend on React's
+  // synthetic pointer/keyboard event delivery. It is enabled only while diving.
+  useEffect(() => {
+    if (!underwater) {
+      moveVectorRef.current = { x: 0, z: 0, y: 0 }
+      return
+    }
+
+    const keys = new Set<string>()
+    const stick = { x: 0, z: 0 }
+    const pointers = new Map<number, { kind: 'stick' | 'axis'; started: number; moved: boolean; axis: number }>()
+    const axisTimers = new Map<number, number>()
+    let stickPointerId: number | null = null
+    let nudgeTimer: number | null = null
+
+    const publish = () => {
+      const keyX = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0)
+        - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0)
+      const keyZ = (keys.has('KeyS') ? 1 : 0) - (keys.has('KeyW') ? 1 : 0)
+      let x = keyX + stick.x
+      let z = keyZ + stick.z
+      const length = Math.hypot(x, z)
+      if (length > 1) { x /= length; z /= length }
+      let axisY = 0
+      pointers.forEach((pointer) => { if (pointer.kind === 'axis') axisY += pointer.axis })
+      const keyY = keys.has('Space') || keys.has('ArrowUp')
+        ? 1
+        : keys.has('ShiftLeft') || keys.has('ArrowDown') ? -1 : 0
+      moveVectorRef.current = { x, z, y: THREE.MathUtils.clamp(axisY || keyY, -1, 1) }
+    }
+
+    const isTyping = (target: EventTarget | null) => {
+      const element = target as HTMLElement | null
+      return Boolean(element && (element.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)))
+    }
+
+    const joystickElement = document.querySelector<HTMLElement>('[data-mpd-joystick="true"]')
+    const updateStick = (event: PointerEvent) => {
+      const rect = joystickElement?.getBoundingClientRect()
+      if (!rect || rect.width < 2 || rect.height < 2) return
+      const radius = Math.min(rect.width, rect.height) * 0.34
+      let x = (event.clientX - (rect.left + rect.width / 2)) / radius
+      let y = (event.clientY - (rect.top + rect.height / 2)) / radius
+      const length = Math.hypot(x, y)
+      if (length > 1) { x /= length; y /= length }
+      stick.x = x
+      stick.z = y
+      const pointer = pointers.get(event.pointerId)
+      if (pointer) pointer.moved ||= length > 0.12
+      publish()
+    }
+
+    const down = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      const joystick = target?.closest?.('[data-mpd-joystick="true"]')
+      const axisButton = target?.closest?.('[data-mpd-dive-axis]') as HTMLElement | null
+      if (!joystick && !axisButton) return
+      event.preventDefault()
+      if (joystick) {
+        if (stickPointerId !== null) return
+        stickPointerId = event.pointerId
+        pointers.set(event.pointerId, { kind: 'stick', started: performance.now(), moved: false, axis: 0 })
+        if (nudgeTimer !== null) { window.clearTimeout(nudgeTimer); nudgeTimer = null }
+        updateStick(event)
+      } else if (axisButton) {
+        if (axisTimers.has(event.pointerId)) {
+          window.clearTimeout(axisTimers.get(event.pointerId)!)
+          axisTimers.delete(event.pointerId)
+        }
+        pointers.set(event.pointerId, {
+          kind: 'axis', started: performance.now(), moved: false,
+          axis: axisButton.dataset.mpdDiveAxis === 'up' ? 1 : -1,
+        })
+        publish()
+      }
+    }
+
+    const move = (event: PointerEvent) => {
+      if (stickPointerId !== event.pointerId) return
+      event.preventDefault()
+      updateStick(event)
+    }
+
+    const up = (event: PointerEvent) => {
+      const pointer = pointers.get(event.pointerId)
+      if (!pointer) return
+      if (pointer.kind === 'stick') {
+        pointers.delete(event.pointerId)
+        stickPointerId = null
+        const wasTap = !pointer.moved
+        stick.x = 0
+        stick.z = 0
+        publish()
+        if (wasTap) {
+          // A short nudge on a simple joystick tap; dragging remains continuous.
+          stick.z = -0.88
+          publish()
+          nudgeTimer = window.setTimeout(() => {
+            stick.x = 0
+            stick.z = 0
+            publish()
+            nudgeTimer = null
+          }, 720)
+        }
+      } else {
+        const delay = Math.max(0, 520 - (performance.now() - pointer.started))
+        const timer = window.setTimeout(() => {
+          pointers.delete(event.pointerId)
+          axisTimers.delete(event.pointerId)
+          publish()
+        }, delay)
+        axisTimers.set(event.pointerId, timer)
+        publish()
+      }
+    }
+
+    const cancel = (event: PointerEvent) => {
+      const pointer = pointers.get(event.pointerId)
+      if (!pointer) return
+      if (pointer.kind === 'stick') {
+        pointers.delete(event.pointerId)
+        stickPointerId = null
+        stick.x = 0
+        stick.z = 0
+      }
+      const timer = axisTimers.get(event.pointerId)
+      if (timer !== undefined) window.clearTimeout(timer)
+      axisTimers.delete(event.pointerId)
+      publish()
+    }
+
+    const downKey = (event: KeyboardEvent) => {
+      if (isTyping(event.target)) return
+      const code = event.code
+      const supported = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space', 'ShiftLeft']
+      if (!supported.includes(code)) return
+      event.preventDefault()
+      keys.add(code)
+      publish()
+    }
+    const upKey = (event: KeyboardEvent) => {
+      keys.delete(event.code)
+      publish()
+    }
+    const blur = () => {
+      keys.clear()
+      stick.x = 0
+      stick.z = 0
+      pointers.clear()
+      stickPointerId = null
+      axisTimers.forEach((timer) => window.clearTimeout(timer))
+      axisTimers.clear()
+      if (nudgeTimer !== null) window.clearTimeout(nudgeTimer)
+      nudgeTimer = null
+      publish()
+    }
+
+    window.addEventListener('pointerdown', down, true)
+    window.addEventListener('pointermove', move, true)
+    window.addEventListener('pointerup', up, true)
+    window.addEventListener('pointercancel', cancel, true)
+    window.addEventListener('keydown', downKey, true)
+    window.addEventListener('keyup', upKey, true)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('pointerdown', down, true)
+      window.removeEventListener('pointermove', move, true)
+      window.removeEventListener('pointerup', up, true)
+      window.removeEventListener('pointercancel', cancel, true)
+      window.removeEventListener('keydown', downKey, true)
+      window.removeEventListener('keyup', upKey, true)
+      window.removeEventListener('blur', blur)
+      axisTimers.forEach((timer) => window.clearTimeout(timer))
+      if (nudgeTimer !== null) window.clearTimeout(nudgeTimer)
+      moveVectorRef.current = { x: 0, z: 0, y: 0 }
+    }
+  }, [underwater])
 
   const handleAvatarArrive = useCallback(() => {
     const poolTarget = pendingPoolEntry.current
@@ -301,7 +402,6 @@ export function StudioScene({
       pendingPoolEntry.current = null
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       underwaterRef.current = true
-      underwaterTargetRef.current = null
       moveVectorRef.current = { x: 0, z: 0, y: 0 }
       // Seed the world/camera anchor before the underwater scene mounts. This
       // prevents its first frame from anchoring at the old outdoor spawn point.
@@ -320,7 +420,6 @@ export function StudioScene({
 
   const riseToSurface = useCallback(() => {
     pendingPoolEntry.current = null
-    underwaterTargetRef.current = null
     moveVectorRef.current = { x: 0, z: 0, y: 0 }
     underwaterRef.current = false
     setUnderwater(false)
@@ -443,33 +542,30 @@ export function StudioScene({
     if (!underwaterRef.current) return
     const current = localPositionRef.current.clone()
     const direction = rayDirection.clone().normalize()
-    const horizontal = new THREE.Vector3(direction.x, 0, direction.z)
-    if (horizontal.lengthSq() < 0.0025) {
-      horizontal.set(Math.sin(localRotationRef.current), 0, Math.cos(localRotationRef.current))
-    }
-    horizontal.normalize()
-
-    // A tap creates a long, camera-ray-aligned 3D waypoint. The Avatar's single
-    // underwater movement loop consumes it, so click/touch and joystick never
-    // compete to move the same group or camera.
-    const distance = THREE.MathUtils.clamp(
-      620 + (1 - Math.abs(pointerY)) * 1_420 + Math.abs(pointerX) * 380,
-      420,
-      2_600,
+    // Pointer location determines a 3D destination, so tapping higher/lower
+    // on the water view changes depth while centre taps swim straight ahead.
+    const travelDistance = THREE.MathUtils.clamp(
+      260 + (1 - Math.abs(pointerY)) * 360 + Math.abs(pointerX) * 140,
+      220,
+      760,
     )
-    const vertical = THREE.MathUtils.clamp(direction.y * distance * 0.42 + pointerY * 110, -620, 620)
-    const destinationY = THREE.MathUtils.clamp(current.y + vertical, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.025)
-    underwaterTargetRef.current = new THREE.Vector3(
-      THREE.MathUtils.clamp(current.x + horizontal.x * distance, UNDERWATER_MIN_X, UNDERWATER_MAX_X),
-      destinationY,
-      THREE.MathUtils.clamp(current.z + horizontal.z * distance, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z),
+    const destination = current.addScaledVector(direction, travelDistance)
+    destination.x = THREE.MathUtils.clamp(destination.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
+    destination.z = THREE.MathUtils.clamp(destination.z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
+    destination.y = THREE.MathUtils.clamp(
+      destination.y,
+      UNDERWATER_MIN_Y + 2,
+      UNDERWATER_SURFACE_Y - 0.12,
     )
     moveVectorRef.current = { x: 0, z: 0, y: 0 }
     pendingPoolEntry.current = null
     setSeatActivity(null)
-    setTravel(null)
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
+    // Avatar's single movement loop consumes this target. This removes the old
+    // second driver/ref path that could disagree with Avatar and camera state.
+    setTravel({ position: destination, sit: false })
   }, [])
+
 
   const handlePathClick = useCallback((e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -607,7 +703,6 @@ export function StudioScene({
           <>
             <UnderwaterWorld quality={graphicsTier} playerPositionRef={localPositionRef} />
             <UnderwaterClickCatcher onNavigate={handleUnderwaterTap} />
-            <UnderwaterFovZoom enabled={underwater} mobile={graphicsTier === 'mobile'} />
           </>
         ) : (
           <>
@@ -640,8 +735,6 @@ export function StudioScene({
           underwaterMode={underwater}
           workoutMode={workoutMode}
           moveVectorRef={moveVectorRef}
-          avatarRootRef={avatarRootRef}
-          underwaterTargetRef={underwaterTargetRef}
           onArrive={handleAvatarArrive}
           onMove={handleLocalPosition}
           displayName={userName || '접속 중'}
@@ -658,7 +751,7 @@ export function StudioScene({
           enableDamping
           dampingFactor={0.08}
           rotateSpeed={graphicsTier === 'mobile' ? 0.64 : 0.74}
-          enableZoom={!underwater}
+          enableZoom
           zoomSpeed={1.12}
           minDistance={graphicsTier === 'mobile' ? 4.0 : 3.8}
           maxDistance={graphicsTier === 'mobile' ? 52 : 56}

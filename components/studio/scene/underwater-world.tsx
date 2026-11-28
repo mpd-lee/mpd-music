@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import type { ThreeEvent } from '@react-three/fiber'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -278,27 +278,52 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
-  const ctx = canvas.getContext('2d')
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) return source
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
 
-  // Keep the V32 reef photograph and remove only its stretched left/right edge
-  // strips. Do not blur, average, paint rays, or locally darken the centre.
-  const crop = Math.round(sourceWidth * 0.05)
+  // The V32 reef photograph is retained. Only the outer 3.5% stretched photo
+  // margins are cropped; no horizontal neighbour averaging, blur, or added ray
+  // is used. Those broad pixel blends caused the vertical smeared column seen in
+  // the V33/V34 screenshots.
+  const crop = Math.round(sourceWidth * 0.035)
   ctx.drawImage(image, crop, 0, sourceWidth - crop * 2, sourceHeight, 0, 0, width, height)
-  // Close the panorama wrap over a hairline band only. The crop removes the
-  // smeared photo edges; this tiny blend avoids a hard wrap without softening
-  // reef detail across a broad strip.
-  blendCanvasSeams(ctx, width, height, Math.max(4, Math.round(width * 0.006)), false)
+  const frame = ctx.getImageData(0, 0, width, height)
+  const pixels = frame.data
+
+  // Do not apply a local vertical light-shaft mask: its narrow dark falloff
+  // created the persistent blurred-looking stripe. Keep the original natural
+  // light and preserve all reef/sand pixel detail.
+  // Clip only extreme cyan highlights after the shaft attenuation; never blur.
+  for (let y = 0; y < Math.floor(height * 0.58); y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4
+      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2]
+      const luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
+      if (luminance < 198 || b < r * 1.12 || g < r * 1.08) continue
+      const rolled = 194 + (luminance - 194) * 0.52
+      const gain = rolled / Math.max(1, luminance)
+      pixels[i] = Math.round(r * gain)
+      pixels[i + 1] = Math.round(g * gain)
+      pixels[i + 2] = Math.round(b * gain)
+    }
+  }
+  // Restore opaque alpha; the panorama itself must never contain a translucent
+  // vertical band that reveals the scene clear colour underneath.
+  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255
+  ctx.putImageData(frame, 0, 0)
+  // Close only the equirectangular left/right wrap seam. This narrow edge pass
+  // cannot affect the middle of the image where the previous vertical smear lived.
+  blendCanvasSeams(ctx, width, height, Math.max(8, Math.floor(width * 0.006)), false)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
   texture.mapping = THREE.EquirectangularReflectionMapping
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.ClampToEdgeWrapping
-  texture.repeat.set(1, 1)
-  texture.offset.set(0, 0)
+  texture.repeat.set(1.08, 1.04)
+  texture.offset.set(-0.04, -0.02)
   texture.minFilter = THREE.LinearMipmapLinearFilter
   texture.magFilter = THREE.LinearFilter
   texture.generateMipmaps = true
@@ -306,6 +331,7 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
   texture.needsUpdate = true
   return texture
 }
+
 function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
   // The complete approved 2:1 underwater photograph is rendered as the scene's
   // equirectangular background. This avoids a far-plane / sphere-shell clipping
@@ -324,8 +350,8 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
     texture.mapping = THREE.EquirectangularReflectionMapping
     texture.wrapS = THREE.RepeatWrapping
     texture.wrapT = THREE.ClampToEdgeWrapping
-    texture.repeat.set(1.0, 1.0)
-    texture.offset.set(0, 0)
+    texture.repeat.set(1.08, 1.04)
+    texture.offset.set(-0.04, -0.02)
     texture.minFilter = THREE.LinearMipmapLinearFilter
     texture.magFilter = THREE.LinearFilter
     texture.generateMipmaps = true
@@ -334,8 +360,9 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
     scene.background = texture
     // Aim the default over-the-shoulder forward view at the cave/reef centre,
     // rather than the smeared left/right edge of the equirectangular photograph.
-    scene.backgroundRotation.set(0, 0, 0)
-    scene.backgroundIntensity = quality === 'mobile' ? 0.74 : 0.76
+    // Rotate the equirectangular wrap seam behind the diver instead of through the centre of view.
+    scene.backgroundRotation.set(0, Math.PI - 0.78, 0)
+    scene.backgroundIntensity = quality === 'mobile' ? 0.78 : 0.82
     return () => {
       scene.background = previousBackground
       scene.backgroundRotation.copy(previousRotation)
@@ -1173,7 +1200,7 @@ export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
       {/* Natural sunlight is already baked into the 360° photo. Avoid synthetic cones that read as blurry vertical bands. */}
 
       <UnderwaterDome quality={quality} />
-      <group scale={0.94}>
+      <group scale={0.96}>
       {Array.from({ length: rockCount }, (_, index) => (
         <ReefEscarpmentRock key={`reef-rock-${index}`} index={index} quality={quality} count={rockCount} baseY={-16.2} />
       ))}
@@ -1203,7 +1230,7 @@ export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
       {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} worldRootRef={worldRoot} quality={quality} />}
 
       {/* Dispersed coral heads at different depths give the diver real near-field landmarks. */}
-      <group scale={0.94}>
+      <group scale={0.96}>
         {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
         {kelpPositions.map((position, i) => <Kelp key={`near-kelp-${i}`} position={position} seed={i * 7.7 + 91} />)}
       </group>

@@ -1,19 +1,13 @@
-MPD MUSIC STUDIO WORLD V41 PATCH MANIFEST
-
-Patched project files:
-- components/studio/scene/avatar.tsx
-- components/studio/scene/studio-scene.tsx
-- components/studio/scene/outdoor.tsx
-- components/studio/scene/underwater-world.tsx
-- components/studio/player-controls.tsx
-- components/studio/music-player.tsx
-- app/globals.css
-
-Required existing public assets (not overwritten):
-- public/images/mpd-sky-canopy-v29.webp
-- public/images/mpd-sky-canopy-v29-mobile.webp
-- public/images/mpd-underwater-natural-v32.webp
-- public/images/mpd-underwater-natural-v32-mobile.webp
-
-The patch does not include .env, .env.local, node_modules, .next, .vercel, or .git.
-It does not modify layout rules for chat, guestbook, topbar, SCUBA HUD, or joystick placement.
+V41 patch targets:
+components/studio/scene/outdoor.tsx
+components/studio/scene/underwater-world.tsx
+components/studio/scene/studio-scene.tsx
+components/studio/scene/avatar.tsx
+components/studio/player-controls.tsx
+app/globals.css
+public/images/mpd-sky-panorama-v44.webp
+public/images/mpd-sky-panorama-v44-mobile.webp
+V41_CHANGELOG_KR.txt
+V41_PATCH_MANIFEST.txt
+No .env or .env.local files are included.
+No chat/guestbook/player layout files are modified.

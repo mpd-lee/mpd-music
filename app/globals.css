@@ -1,4 +1,4 @@
-﻿@import 'tailwindcss';
+@import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
@@ -1324,8 +1324,9 @@ body[data-mpd-underwater="true"] .mpd-guestbook-panel {
 }
 
 
-/* V42: raise only the infinite-repeat music player so it clears the movement hint. */
-@media (hover: hover) and (pointer: fine) and (min-width: 821px) {
-  .mpd-music-player { bottom: 54px !important; }
-  .mpd-music-player-toggle { bottom: 54px !important; }
+/* MPD V41: move only the desktop rise/dive buttons slightly above the player. */
+@media (hover: hover) and (pointer: fine) {
+  .mpd-dive-axis {
+    bottom: calc(152px + env(safe-area-inset-bottom)) !important;
+  }
 }

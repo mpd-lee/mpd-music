@@ -13,6 +13,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
   const keys = useRef(new Set<string>())
   const stick = useRef<Vector>(ZERO)
   const vertical = useRef(0)
+  const lastPublished = useRef<Vector>(ZERO)
   const activePointer = useRef<number | null>(null)
   const axisPressStartedAt = useRef(0)
   const axisReleaseTimer = useRef<number | null>(null)
@@ -34,6 +35,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     const next = length < 0.018 && Math.abs(y) < 0.018 ? ZERO : { x, z, y }
     // Publish every control transition. Do not suppress small but intentional
     // joystick movements; the Avatar applies its own 3D movement dead-zone.
+    lastPublished.current = next
     onMove(next)
   }, [onMove, underwater])
 
@@ -42,6 +44,7 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
     keys.current.clear()
     stick.current = ZERO
     vertical.current = 0
+    lastPublished.current = ZERO
     activePointer.current = null
     setThumb({ x: 0, y: 0 })
     onMove(ZERO)
@@ -179,15 +182,10 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
           ? <><span>W A S D</span> 수평 수영 · <span>↑ / Space</span> 상승 · <span>↓ / Left Shift</span> 하강 · 화면 위/아래 터치로 깊이 이동</>
           : <><span>W A S D</span> 또는 방향키로 이동 · 마우스로 바닥을 누르면 해당 위치로 이동</>}
       </div>
-      {underwater && (
-        <div className="mpd-desktop-dive-axis" aria-label="수중 위아래 이동">
-          <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}><ArrowUp size={14} /> 상승</button>
-          <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}><ArrowDown size={14} /> 하강</button>
-        </div>
-      )}
       <div className="mpd-mobile-controls" aria-label="모바일 이동 조이스틱">
         <div
           ref={baseRef}
+          data-mpd-joystick="true"
           className="mpd-joystick-base"
           style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', pointerEvents: 'auto' }}
           onContextMenu={(event) => event.preventDefault()}
@@ -225,8 +223,8 @@ export function PlayerControls({ onMove, underwater = false }: Props) {
         </div>
         {underwater && (
           <div className="mpd-dive-axis" aria-label="수중 위아래 이동" style={{ touchAction: 'none', pointerEvents: 'auto' }}>
-            <button type="button" style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }} onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}><ArrowUp size={13} /> 상승</button>
-            <button type="button" style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }} onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}><ArrowDown size={13} /> 하강</button>
+            <button type="button" data-mpd-dive-axis="up" style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }} onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}><ArrowUp size={13} /> 상승</button>
+            <button type="button" data-mpd-dive-axis="down" style={{ touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none' }} onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}><ArrowDown size={13} /> 하강</button>
             <small>두 손가락: 시야 줌</small>
           </div>
         )}
