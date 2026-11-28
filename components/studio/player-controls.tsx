@@ -1,14 +1,14 @@
-'use client'
+﻿'use client'
 
-import { useCallback, useEffect, useRef, useState, type MutableRefObject, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrowDown, ArrowUp, Joystick } from 'lucide-react'
 
 type Vector = { x: number; z: number; y?: number }
-type Props = { onMove: (value: Vector) => void; underwater?: boolean; moveVectorRef?: MutableRefObject<Vector> }
+type Props = { onMove: (value: Vector) => void; underwater?: boolean }
 
 const ZERO: Vector = { x: 0, z: 0 }
 
-export function PlayerControls({ onMove, underwater = false, moveVectorRef }: Props) {
+export function PlayerControls({ onMove, underwater = false }: Props) {
   const baseRef = useRef<HTMLDivElement>(null)
   const keys = useRef(new Set<string>())
   const stick = useRef<Vector>(ZERO)
@@ -36,12 +36,8 @@ export function PlayerControls({ onMove, underwater = false, moveVectorRef }: Pr
     // Publish every control transition. Do not suppress small but intentional
     // joystick movements; the Avatar applies its own 3D movement dead-zone.
     lastPublished.current = next
-    // Write directly to the same ref consumed by Avatar's render loop. This is
-    // intentionally synchronous so pointer capture, touch and held buttons do
-    // not depend on a React state render or a secondary CustomEvent listener.
-    if (moveVectorRef) moveVectorRef.current = { x: next.x, z: next.z, y: next.y ?? 0 }
     onMove(next)
-  }, [onMove, underwater, moveVectorRef])
+  }, [onMove, underwater])
 
   useEffect(() => {
     // A pool-to-underwater transition must not inherit a stale joystick/key press.
@@ -49,7 +45,6 @@ export function PlayerControls({ onMove, underwater = false, moveVectorRef }: Pr
     stick.current = ZERO
     vertical.current = 0
     lastPublished.current = ZERO
-    if (moveVectorRef) moveVectorRef.current = { x: 0, z: 0, y: 0 }
     activePointer.current = null
     setThumb({ x: 0, y: 0 })
     onMove(ZERO)
@@ -61,7 +56,7 @@ export function PlayerControls({ onMove, underwater = false, moveVectorRef }: Pr
     const down = (event: KeyboardEvent) => {
       const code = event.code
       if (isTyping(event.target) || document.body.dataset.mpdPianoOpen === 'true') return
-      if (underwater && (code === 'Space' || code === 'ShiftLeft' || code === 'ArrowUp' || code === 'ArrowDown')) {
+      if (underwater && (code === 'Space' || (code === 'ShiftLeft' || code === 'ShiftRight') || code === 'ArrowUp' || code === 'ArrowDown')) {
         event.preventDefault()
         vertical.current = (code === 'Space' || code === 'ArrowUp') ? 1 : -1
         publish()
@@ -74,7 +69,7 @@ export function PlayerControls({ onMove, underwater = false, moveVectorRef }: Pr
     }
     const up = (event: KeyboardEvent) => {
       const code = event.code
-      if (underwater && (code === 'Space' || code === 'ShiftLeft' || code === 'ArrowUp' || code === 'ArrowDown')) {
+      if (underwater && (code === 'Space' || (code === 'ShiftLeft' || code === 'ShiftRight') || code === 'ArrowUp' || code === 'ArrowDown')) {
         vertical.current = 0
         keys.current.delete(code)
         publish()
@@ -100,10 +95,9 @@ export function PlayerControls({ onMove, underwater = false, moveVectorRef }: Pr
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', blur)
-      if (moveVectorRef) moveVectorRef.current = { x: 0, z: 0, y: 0 }
       onMove(ZERO)
     }
-  }, [onMove, publish, underwater, moveVectorRef])
+  }, [onMove, publish, underwater])
 
   const updateStick = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = baseRef.current?.getBoundingClientRect()
@@ -188,6 +182,16 @@ export function PlayerControls({ onMove, underwater = false, moveVectorRef }: Pr
           ? <><span>W A S D</span> 수평 수영 · <span>↑ / Space</span> 상승 · <span>↓ / Left Shift</span> 하강 · 화면 위/아래 터치로 깊이 이동</>
           : <><span>W A S D</span> 또는 방향키로 이동 · 마우스로 바닥을 누르면 해당 위치로 이동</>}
       </div>
+      {underwater && (
+        <div className="mpd-desktop-dive-axis" aria-label="PC 수중 상승 및 하강">
+          <button type="button" onPointerDown={(event) => startDiveAxis(event, 1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}>
+            <ArrowUp size={14} /> 상승
+          </button>
+          <button type="button" onPointerDown={(event) => startDiveAxis(event, -1)} onPointerUp={stopDiveAxis} onPointerCancel={stopDiveAxis} onLostPointerCapture={handleDiveLostCapture}>
+            <ArrowDown size={14} /> 하강
+          </button>
+        </div>
+      )}
       <div className="mpd-mobile-controls" aria-label="모바일 이동 조이스틱">
         <div
           ref={baseRef}

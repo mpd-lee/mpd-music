@@ -140,14 +140,77 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   return blended
 }
 
+function createSkyHorizonFillTexture(source: THREE.Texture, quality: GraphicsTier) {
+  // V29 has useful cloud detail but its densest cloud bank sits too low in the
+  // equirectangular image. A gentle latitude warp moves that bank toward the
+  // horizon without cutting the zenith, adding a flat colour cap, or stretching
+  // the forest layer. This is a runtime texture transform, not a generated image.
+  if (typeof document === 'undefined') return source
+  const image = source.image as HTMLImageElement
+  const sourceWidth = image?.naturalWidth || image?.width || 0
+  const sourceHeight = image?.naturalHeight || image?.height || 0
+  if (!sourceWidth || !sourceHeight) return source
+
+  const width = Math.min(sourceWidth, quality === 'mobile' ? 1024 : 2048)
+  const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d', { willReadFrequently: true })
+  if (!context) return source
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(image, 0, 0, width, height)
+
+  const original = context.getImageData(0, 0, width, height)
+  const output = context.createImageData(width, height)
+  const src = original.data
+  const dst = output.data
+  const maxY = height - 1
+  const maxX = width * 4
+  for (let y = 0; y < height; y += 1) {
+    const t = y / Math.max(1, maxY)
+    // Identity at both poles, +0.16 latitude shift at the horizon. This relocates
+    // dense cumulus from the lower third to the camera's horizontal sightline.
+    const sourceT = THREE.MathUtils.clamp(t + 0.16 * Math.sin(Math.PI * t), 0, 1)
+    const sourceY = sourceT * maxY
+    const y0 = Math.floor(sourceY)
+    const y1 = Math.min(maxY, y0 + 1)
+    const blend = sourceY - y0
+    const row0 = y0 * maxX
+    const row1 = y1 * maxX
+    const outRow = y * maxX
+    for (let x = 0; x < maxX; x += 4) {
+      dst[outRow + x] = Math.round(src[row0 + x] * (1 - blend) + src[row1 + x] * blend)
+      dst[outRow + x + 1] = Math.round(src[row0 + x + 1] * (1 - blend) + src[row1 + x + 1] * blend)
+      dst[outRow + x + 2] = Math.round(src[row0 + x + 2] * (1 - blend) + src[row1 + x + 2] * blend)
+      dst[outRow + x + 3] = 255
+    }
+  }
+  context.putImageData(output, 0, 0)
+  const corrected = new THREE.CanvasTexture(canvas)
+  corrected.colorSpace = THREE.SRGBColorSpace
+  corrected.mapping = THREE.EquirectangularReflectionMapping
+  corrected.wrapS = THREE.RepeatWrapping
+  corrected.wrapT = THREE.ClampToEdgeWrapping
+  corrected.minFilter = THREE.LinearMipmapLinearFilter
+  corrected.magFilter = THREE.LinearFilter
+  corrected.generateMipmaps = true
+  corrected.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 10 : 16
+  corrected.needsUpdate = true
+  return corrected
+}
+
 function SkyCanopy({ quality }: { quality: GraphicsTier }) {
-  // Use the original V32 360 sky map again. V39's very clear upper band read as
-  // a large empty opening from the studio camera angle; V32 carries more natural
-  // cirrus detail in the upper hemisphere. Do not vertically stretch the map.
-  const texture = useTexture(quality === 'mobile'
-    ? '/images/mpd-sky-panorama-v41-mobile.webp'
-    : '/images/mpd-sky-panorama-v41.webp')
+  // Use the V29 2:1 panorama: its higher, denser cirrus and cumulus coverage fills
+  // the upper canopy view. The V39 panorama's blue zenith band read as an empty
+  // ceiling when seen from the pavilion camera.
+  const source = useTexture(quality === 'mobile'
+    ? '/images/mpd-sky-canopy-v29-mobile.webp'
+    : '/images/mpd-sky-canopy-v29.webp')
+  const texture = useMemo(() => createSkyHorizonFillTexture(source, quality), [source, quality])
   const scene = useThree((state) => state.scene)
+  useEffect(() => () => { if (texture !== source) texture.dispose() }, [texture, source])
   useLayoutEffect(() => {
     const previousBackground = scene.background
     const previousRotation = scene.backgroundRotation.clone()
@@ -176,14 +239,16 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
 function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   const source = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const image = useMemo(() => createCoastEdgeBlend(source, quality), [source, quality])
-  // Match the restored V32 forest arc dimensions and retain a soft horizontal coast/forest overlap.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 56 : 96, 1, true, Math.PI - 0.92, 1.84), [quality])
+  // Use the exact same radius and vertical centre as ForestPanorama. The coastal arc
+  // overlaps the forest arc by about 10 degrees at each end, and the feathered coast
+  // edges reveal the forest underneath without a radial step or a flat-card intersection.
+  const geometry = useMemo(() => new THREE.CylinderGeometry(280, 280, 96, quality === 'mobile' ? 64 : 112, 1, true, Math.PI - 0.92, 1.84), [quality])
   useEffect(() => () => {
     if (image !== source) image.dispose()
     geometry.dispose()
   }, [image, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, 18, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, -2, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
       <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.BackSide} depthWrite={false} />
     </mesh>
   )
@@ -335,13 +400,13 @@ function ForestPanorama({ quality }: { quality: GraphicsTier }) {
   const coastalSource = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const texture = useMemo(() => createGreenForestTexture(source, coastalSource, quality), [source, coastalSource, quality])
   // Increase the angular overlap so the coastal fade always reveals real forest texture.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 64 : 112, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(280, 280, 96, quality === 'mobile' ? 72 : 128, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
   }, [texture, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, 18, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, -2, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
       <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} />
     </mesh>
   )

@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+﻿@import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
 
@@ -1324,8 +1324,10 @@ body[data-mpd-underwater="true"] .mpd-guestbook-panel {
 }
 
 
-/* MPD V41: lift only the music player's expanded/minimized control above the desktop move hint. */
-@media (min-width: 821px) and (pointer: fine) {
-  .mpd-music-player { bottom: 46px !important; }
-  .mpd-music-player-minimized-toggle { bottom: 46px !important; }
+/* MPD V41: tiny upward clearance for the lower-right music player only. */
+.mpd-music-player { bottom: 28px !important; }
+.mpd-music-player-minimized-button { bottom: 28px !important; }
+@media (pointer: coarse), (max-width: 820px) {
+  .mpd-music-player { bottom: calc(max(7px, env(safe-area-inset-bottom)) + 10px) !important; }
+  .mpd-music-player-minimized-button { bottom: calc(max(7px, env(safe-area-inset-bottom)) + 10px) !important; }
 }

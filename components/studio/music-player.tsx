@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { ChevronDown, ChevronUp, ExternalLink, Pause, Play, Volume2, VolumeX, X } from 'lucide-react'
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
@@ -508,7 +508,7 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
       </section>
 
       {minimized && !spotifySelection && (
-        <button type="button" onClick={() => setMinimized(false)} className="mpd-music-player-minimized-toggle fixed bottom-4 right-4 z-30 flex size-12 items-center justify-center rounded-full border border-amber-200/30 bg-neutral-950/80 text-xl shadow-2xl backdrop-blur-md transition hover:scale-105" aria-label="배경 음악 플레이어 열기" title="플레이어 열기">
+        <button type="button" onClick={() => setMinimized(false)} className="mpd-music-player-minimized-button fixed bottom-4 right-4 z-30 flex size-12 items-center justify-center rounded-full border border-amber-200/30 bg-neutral-950/80 text-xl shadow-2xl backdrop-blur-md transition hover:scale-105" aria-label="배경 음악 플레이어 열기" title="플레이어 열기">
           {playing && !suspended && <span className="absolute inset-0 animate-ping rounded-full border border-amber-300/40" aria-hidden="true" />}
           <span aria-hidden="true">🎵</span>
         </button>
