@@ -1,7 +1,29 @@
 ﻿V41 로컬 검증 기록
-==================
-- TypeScript 5.8.3 transpileModule 구문 검사: 변경 TSX 파일 5개 통과
-- 전체 프로젝트 TSC: 이 작업 환경에 프로젝트 node_modules가 없어 미실행
-- Next.js build: 이 작업 환경에 node_modules 및 npm 레지스트리 연결이 없어 미실행
-- 브라우저 실조작: 미실행
-- 배포 스크립트는 사용자 Windows PowerShell에서 TSC와 Next build가 성공해야 GitHub/Vercel 단계로 진행함
+===================
+
+소스 확인/수정:
+- Avatar와 별도 UnderwaterMovementDriver가 동시에 위치/카메라를 조작하지 않도록 Driver 제거
+- Avatar.useFrame을 단일 수중 이동 업데이트 경로로 구성
+- handleMoveVector가 underwater 중 React travel state를 null 처리하지 않도록 변경
+- Avatar의 이동 ref 초기화 effect에서 target 의존성을 제거해 경로 취소 시 조이스틱/키 입력이 지워지지 않도록 수정
+- 카메라 기준 좌우 벡터 cross product 순서 수정
+- 클릭 목적지 및 수중 수직 이동 속도 조정
+- SkyCanopy에서 V32 원본 구름 파노라마를 다시 사용하고, V39의 큰 단색 상단을 제거
+- V32 숲/해안 원통 치수 복원
+- 수중 panorama의 중앙 blur/highlight mask/인공 광선 추가 없음
+- UI 변경은 음악 플레이어 본체 및 접힘 버튼의 데스크톱 bottom 위치만
+
+실행 환경에서 완료:
+- 변경 TS/TSX 파일 transpileModule 구문 분석
+- 패치 목록 및 파일 존재 확인
+- PowerShell 실행 스크립트 UTF-8 BOM 확인
+
+사용자 PC에서 설치 스크립트가 수행:
+- tsc --noEmit 전체 타입 검사
+- Next.js production build
+- GitHub main commit/push
+- Vercel Production 배포 및 기존 alias 연결
+
+주의:
+- 이 패키지 생성 환경에서는 전체 프로젝트 node_modules가 없어 전체 tsc/build를 실행하지 못했습니다.
+- 실제 브라우저 PC/모바일 조작은 Production 배포 후 별도 확인이 필요합니다.

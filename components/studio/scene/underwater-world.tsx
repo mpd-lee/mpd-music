@@ -278,57 +278,27 @@ function createCleanUnderwaterPanorama(source: THREE.Texture, quality: GraphicsT
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  const ctx = canvas.getContext('2d')
   if (!ctx) return source
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
 
-  // Preserve the natural V32 reef photograph. The original export contains
-  // stretched columns on both vertical edges. Crop a matching 5% on all four
-  // sides so the remaining source keeps its 2:1 aspect ratio; this removes the
-  // smeared edge columns without horizontally stretching the reef.
-  const cropX = Math.round(sourceWidth * 0.05)
-  const cropY = Math.round(sourceHeight * 0.05)
+  // Keep the original V32 reef photograph. Remove only the stretched outer photo
+  // margins; do not blur, average, mask, or darken the centre of the panorama.
+  // The old wide seam blend and highlight roll-off changed broad pixel columns
+  // and made the centre look softer than the surrounding reef.
+  const crop = Math.round(sourceWidth * 0.08)
   ctx.drawImage(
     image,
-    cropX,
-    cropY,
-    sourceWidth - cropX * 2,
-    sourceHeight - cropY * 2,
+    crop,
+    0,
+    sourceWidth - crop * 2,
+    sourceHeight,
     0,
     0,
     width,
     height,
   )
-  const frame = ctx.getImageData(0, 0, width, height)
-  const pixels = frame.data
-
-  // Do not apply a local vertical light-shaft mask: its narrow dark falloff
-  // created the persistent blurred-looking stripe. Keep the original natural
-  // light and preserve all reef/sand pixel detail.
-  // Clip only extreme cyan highlights after the shaft attenuation; never blur.
-  for (let y = 0; y < Math.floor(height * 0.58); y += 1) {
-    for (let x = 0; x < width; x += 1) {
-      const i = (y * width + x) * 4
-      const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2]
-      const luminance = r * 0.2126 + g * 0.7152 + b * 0.0722
-      if (luminance < 198 || b < r * 1.12 || g < r * 1.08) continue
-      const rolled = 194 + (luminance - 194) * 0.52
-      const gain = rolled / Math.max(1, luminance)
-      pixels[i] = Math.round(r * gain)
-      pixels[i + 1] = Math.round(g * gain)
-      pixels[i + 2] = Math.round(b * gain)
-    }
-  }
-  // Restore opaque alpha; the panorama itself must never contain a translucent
-  // vertical band that reveals the scene clear colour underneath.
-  for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255
-  ctx.putImageData(frame, 0, 0)
-  // Close only the equirectangular left/right wrap seam. This narrow edge pass
-  // cannot affect the middle of the image where the previous vertical smear lived.
-  // Only a very narrow wrap closure remains; the earlier wide feather made
-  // the seam look like a translucent vertical column when it faced the camera.
-  blendCanvasSeams(ctx, width, height, Math.max(3, Math.floor(width * 0.002)), false)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -373,7 +343,7 @@ function UnderwaterDome({ quality }: { quality: GraphicsTier }) {
     scene.background = texture
     // Aim the default over-the-shoulder forward view at the cave/reef centre,
     // rather than the smeared left/right edge of the equirectangular photograph.
-    scene.backgroundRotation.set(0, Math.PI * 0.5, 0)
+    scene.backgroundRotation.set(0, 0, 0)
     scene.backgroundIntensity = quality === 'mobile' ? 0.74 : 0.76
     return () => {
       scene.background = previousBackground
@@ -1212,7 +1182,7 @@ export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
       {/* Natural sunlight is already baked into the 360° photo. Avoid synthetic cones that read as blurry vertical bands. */}
 
       <UnderwaterDome quality={quality} />
-      <group scale={0.94}>
+      <group scale={0.95}>
       {Array.from({ length: rockCount }, (_, index) => (
         <ReefEscarpmentRock key={`reef-rock-${index}`} index={index} quality={quality} count={rockCount} baseY={-16.2} />
       ))}
@@ -1242,7 +1212,7 @@ export function UnderwaterWorld({ quality = 'high', playerPositionRef }: {
       {playerPositionRef && <DiverMarineEscort playerPositionRef={playerPositionRef} worldRootRef={worldRoot} quality={quality} />}
 
       {/* Dispersed coral heads at different depths give the diver real near-field landmarks. */}
-      <group scale={0.94}>
+      <group scale={0.95}>
         {coralPositions.map((coral) => <CoralBranch key={coral.seed} {...coral} />)}
         {kelpPositions.map((position, i) => <Kelp key={`near-kelp-${i}`} position={position} seed={i * 7.7 + 91} />)}
       </group>

@@ -14,6 +14,10 @@ type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
 export const AVATAR_START = new THREE.Vector3(0, 0, 4.2)
 const SPEED = 4.25
+const UNDERWATER_INPUT_SPEED = 28.0
+const UNDERWATER_CLICK_SPEED = 70.0
+const UNDERWATER_ASCENT_SPEED = 18.0
+const UNDERWATER_DESCENT_SPEED = 22.0
 type MoveVector = { x: number; z: number; y?: number }
 const SKIN = '#f3cba5'
 const HOODIE = '#2f4a5a'
@@ -25,8 +29,8 @@ type AvatarProps = {
   underwaterMode?: boolean
   workoutMode?: WorkoutMode
   moveVectorRef: MutableRefObject<MoveVector>
-  avatarRootRef?: MutableRefObject<THREE.Group | null>
   underwaterTargetRef?: MutableRefObject<THREE.Vector3 | null>
+  avatarRootRef?: MutableRefObject<THREE.Group | null>
   sitOnArrival?: boolean
   lieOnArrival?: boolean
   seatRotation?: number
@@ -69,7 +73,7 @@ function ScubaBubbleTrail() {
   )
 }
 
-export function Avatar({ target, instantTravel = false, underwaterMode = false, workoutMode = null, moveVectorRef, avatarRootRef, underwaterTargetRef, sitOnArrival = false, lieOnArrival = false, seatRotation, seatActivity = null, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
+export function Avatar({ target, instantTravel = false, underwaterMode = false, workoutMode = null, moveVectorRef, avatarRootRef, sitOnArrival = false, lieOnArrival = false, seatRotation, seatActivity = null, onArrive, onMove, displayName = 'MPD-Lee', resetKey, underwaterTargetRef }: AvatarProps) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const leftLeg = useRef<THREE.Group>(null)
@@ -110,15 +114,17 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const distance = coarse ? 9.2 : 9.0
     const targetHeight = 1.18
     const cameraHeight = 2.82
-    // Give the underwater panorama a subtle 2-degree wider view so the reef
-    // reads slightly farther away. Compensate the diver's model scale so the
-    // avatar remains the same apparent size as outdoors; later FOV zoom affects
-    // the diver and panorama together.
+    // A slightly wider underwater view makes the reef feel more distant. Scale
+    // the diver by the matching projection ratio so the avatar remains the same
+    // apparent size as it is outdoors; subsequent FOV zoom affects both together.
     const outdoorFov = coarse ? 52 : 50
+    // A two-degree wider underwater view makes the reef feel slightly farther
+    // away. Compensate the diver's root scale by the exact perspective ratio so
+    // the avatar keeps the same screen-space size as the outdoor avatar.
     const underwaterFov = outdoorFov + 2
-    const diverScaleCompensation = Math.tan(THREE.MathUtils.degToRad(underwaterFov * 0.5))
-      / Math.tan(THREE.MathUtils.degToRad(outdoorFov * 0.5))
-    root.current.scale.setScalar(underwaterMode ? diverScaleCompensation : 1)
+    const projectionCompensation = Math.tan(THREE.MathUtils.degToRad(underwaterFov) * 0.5)
+      / Math.tan(THREE.MathUtils.degToRad(outdoorFov) * 0.5)
+    root.current.scale.setScalar(underwaterMode ? projectionCompensation : 1)
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
       perspective.fov = underwaterMode ? underwaterFov : outdoorFov
@@ -138,7 +144,6 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
 
   useEffect(() => {
     if (!target) return
-    if (!underwaterMode && underwaterTargetRef) underwaterTargetRef.current = null
     if (underwaterMode) underwaterDepthRef.current = THREE.MathUtils.clamp(target.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.02)
     sitting.current = false
     lying.current = false
@@ -236,8 +241,35 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
 
   useEffect(() => {
     collisionDirtyRef.current = true
-  }, [underwaterMode, scene])
+    // Reset movement only when entering/leaving the underwater mode. Do not
+    // depend on `target`: cancelling a waypoint changes target to null and used
+    // to erase the very joystick/key input that requested the cancellation.
+    moveVectorRef.current = { x: 0, z: 0, y: 0 }
+    if (underwaterTargetRef) underwaterTargetRef.current = null
+  }, [underwaterMode, scene, moveVectorRef, underwaterTargetRef])
 
+  useEffect(() => {
+    const receiveUnderwaterInput = (event: Event) => {
+      if (!underwaterMode) return
+      const detail = (event as CustomEvent<MoveVector>).detail
+      if (!detail) return
+      moveVectorRef.current = {
+        x: THREE.MathUtils.clamp(Number(detail.x) || 0, -1, 1),
+        z: THREE.MathUtils.clamp(Number(detail.z) || 0, -1, 1),
+        y: THREE.MathUtils.clamp(Number(detail.y) || 0, -1, 1),
+      }
+      const active = Math.hypot(moveVectorRef.current.x, moveVectorRef.current.z) > 0.012
+        || Math.abs(moveVectorRef.current.y ?? 0) > 0.012
+      if (active) {
+        arrived.current = true
+        route.current = []
+        sitting.current = false
+        lying.current = false
+      }
+    }
+    window.addEventListener('mpd-underwater-input', receiveUnderwaterInput)
+    return () => window.removeEventListener('mpd-underwater-input', receiveUnderwaterInput)
+  }, [underwaterMode, moveVectorRef])
 
   useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
@@ -254,17 +286,67 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const inputLength = Math.hypot(input.x, input.z)
 
     if (underwaterMode) {
-      // Translation is owned by UnderwaterMovementController in StudioScene.
-      // Avatar reads the same inputs only to animate the swimming pose.
+      // One authoritative movement loop lives beside the avatar transform.
+      // This avoids a separate scene driver racing the avatar ref during the
+      // pool-to-ocean remount and guarantees every UI input changes this Group.
       const verticalInput = THREE.MathUtils.clamp(input.y ?? 0, -1, 1)
-      const hasWaypoint = Boolean(underwaterTargetRef?.current)
-      moving = inputLength > 0.025 || Math.abs(verticalInput) > 0.025 || hasWaypoint
-      if (moving) {
-        sitting.current = false
-        lying.current = false
-        arrived.current = true
+      const horizontalInput = Math.hypot(input.x, input.z)
+      const hasManualInput = horizontalInput > 0.015 || Math.abs(verticalInput) > 0.015
+
+      sitting.current = false
+      lying.current = false
+      arrived.current = true
+
+      if (hasManualInput) {
+        if (underwaterTargetRef) underwaterTargetRef.current = null
+
+        if (horizontalInput > 0.015) {
+          const forward = new THREE.Vector3()
+          camera.getWorldDirection(forward)
+          forward.y = 0
+          if (forward.lengthSq() < 0.0001) {
+            forward.set(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y))
+          }
+          forward.normalize()
+
+          const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
+          const direction = right.multiplyScalar(input.x).addScaledVector(forward, -input.z)
+          if (direction.lengthSq() > 0.0001) {
+            direction.normalize()
+            g.position.addScaledVector(direction, UNDERWATER_INPUT_SPEED * dt)
+            const desired = Math.atan2(direction.x, direction.z)
+            let difference = desired - g.rotation.y
+            difference = Math.atan2(Math.sin(difference), Math.cos(difference))
+            g.rotation.y += difference * Math.min(1, dt * 7.5)
+          }
+        }
+
+        if (Math.abs(verticalInput) > 0.015) {
+          const verticalSpeed = verticalInput > 0 ? UNDERWATER_ASCENT_SPEED : UNDERWATER_DESCENT_SPEED
+          g.position.y += verticalInput * verticalSpeed * dt
+        }
+        moving = true
+      } else {
+        const destination = underwaterTargetRef?.current ?? null
+        if (destination) {
+          const deltaToTarget = destination.clone().sub(g.position)
+          const distance = deltaToTarget.length()
+          if (distance > 0.9) {
+            const horizontalDistance = Math.hypot(deltaToTarget.x, deltaToTarget.z)
+            if (horizontalDistance > 0.02) {
+              const desired = Math.atan2(deltaToTarget.x, deltaToTarget.z)
+              let difference = desired - g.rotation.y
+              difference = Math.atan2(Math.sin(difference), Math.cos(difference))
+              g.rotation.y += difference * Math.min(1, dt * 7.5)
+            }
+            g.position.addScaledVector(deltaToTarget, Math.min(1, UNDERWATER_CLICK_SPEED * dt / distance))
+            moving = true
+          } else {
+            g.position.copy(destination)
+            if (underwaterTargetRef) underwaterTargetRef.current = null
+          }
+        }
       }
-      underwaterDepthRef.current = g.position.y
     } else {
       if (inputLength > 0.012) {
         sitting.current = false
@@ -275,7 +357,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         forward.y = 0
         if (forward.lengthSq() < 0.001) forward.set(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y))
         forward.normalize()
-        const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize()
+        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
         const direction = right.multiplyScalar(input.x).addScaledVector(forward, -input.z)
         if (direction.lengthSq() > 0.001) {
           direction.normalize()
@@ -329,6 +411,10 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     if (swimming.current) {
       if (!underwaterMode) {
         g.position.y = THREE.MathUtils.lerp(g.position.y, waterFloatY, diving.current ? 0.12 : 0.14)
+      } else {
+        // Preserve the exact depth reached by the authoritative movement loop.
+        // The tiny body bob is animated on the body group, not the world position.
+        underwaterDepthRef.current = g.position.y
       }
     } else if (!sitting.current && !lying.current && !workoutMode && (g.position.z > 9.2 || Math.abs(g.position.x) > 12.2)) {
       const onPoolDeck = Math.abs(g.position.x) <= 9.4 && g.position.z >= 11.3 && g.position.z <= 22.7
@@ -489,7 +575,10 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     body.current!.position.y = THREE.MathUtils.lerp(body.current!.position.y, bodyY, 0.2)
 
     const cameraDelta = g.position.clone().sub(prev.current)
-    if (!underwaterMode && cameraDelta.lengthSq() > 0) {
+    if (cameraDelta.lengthSq() > 1e-10) {
+      // The camera must follow even before/without makeDefault OrbitControls.
+      // Previously the whole camera update was inside `if (controls)`, so an
+      // unavailable controls ref made swimming appear frozen on some mounts.
       camera.position.add(cameraDelta)
       if (controls) {
         controls.target.add(cameraDelta)
@@ -501,7 +590,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     prev.current.copy(g.position)
 
     const now = performance.now()
-    if (onMove && !underwaterMode && now - lastMoveSent.current > 140) {
+    if (onMove && now - lastMoveSent.current > 140) {
       const moved = g.position.distanceToSquared(lastSentPosition.current) > 0.0025
       let rotationDelta = g.rotation.y - lastSentRotation.current
       rotationDelta = Math.atan2(Math.sin(rotationDelta), Math.cos(rotationDelta))

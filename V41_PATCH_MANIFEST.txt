@@ -1,20 +1,22 @@
-﻿MPD MUSIC STUDIO WORLD V41 PATCH MANIFEST
-========================================
+MPD MUSIC STUDIO WORLD V41 PATCH MANIFEST
 
 Modified source files:
-- components/studio/player-controls.tsx
 - components/studio/scene/avatar.tsx
 - components/studio/scene/studio-scene.tsx
 - components/studio/scene/outdoor.tsx
 - components/studio/scene/underwater-world.tsx
+- components/studio/music-player.tsx
+- app/globals.css
 
-Added/replaced sky assets:
+New assets:
 - public/images/mpd-sky-panorama-v41.webp
 - public/images/mpd-sky-panorama-v41-mobile.webp
 
-Reused existing underwater assets:
-- public/images/mpd-underwater-natural-v32.webp
-- public/images/mpd-underwater-natural-v32-mobile.webp
+Preserved/not modified:
+- .env / .env.local / .env.*
+- components/studio/chat-panel.tsx
+- components/studio/studio-app.tsx
+- components/studio/player-controls.tsx
+- all other chat, guestbook, room, instrument, voice, and Supabase files
 
-UI layout files are intentionally excluded.
-Secrets and environment files are intentionally excluded.
+PowerShell 5.1 script encoding: UTF-8 with BOM.

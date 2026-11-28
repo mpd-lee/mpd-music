@@ -2,7 +2,7 @@
 
 import { Environment, OrbitControls } from '@react-three/drei'
 import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber'
-import { Suspense, useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { GRAPHICS_PRESETS, type GraphicsTier } from '@/lib/graphics-quality'
 import { getIslandGroundHeight, ISLAND_WALK_RADIUS } from '@/lib/island-terrain'
@@ -105,7 +105,7 @@ function UnderwaterClickCatcher({
     }
     const move = (event: PointerEvent) => {
       if (!active || active.id !== event.pointerId) return
-      if (Math.hypot(event.clientX - active.x, event.clientY - active.y) > 18) active.cancelled = true
+      if (Math.hypot(event.clientX - active.x, event.clientY - active.y) > (event.pointerType === 'touch' ? 28 : 10)) active.cancelled = true
     }
     const up = (event: PointerEvent) => {
       if (!active || active.id !== event.pointerId) return
@@ -150,12 +150,12 @@ function UnderwaterFovZoom({ enabled, mobile }: { enabled: boolean; mobile: bool
     perspective.fov = baseFov
     perspective.updateProjectionMatrix()
     const clampFov = () => {
-      perspective.fov = THREE.MathUtils.clamp(perspective.fov, 36, 74)
+      perspective.fov = THREE.MathUtils.clamp(perspective.fov, 34, 72)
       perspective.updateProjectionMatrix()
     }
     const wheel = (event: WheelEvent) => {
       event.preventDefault()
-      perspective.fov = THREE.MathUtils.clamp(perspective.fov + event.deltaY * 0.018, 36, 74)
+      perspective.fov = THREE.MathUtils.clamp(perspective.fov + event.deltaY * 0.018, 34, 72)
       perspective.updateProjectionMatrix()
     }
     const pointers = new Map<number, { x: number; y: number }>()
@@ -177,7 +177,7 @@ function UnderwaterFovZoom({ enabled, mobile }: { enabled: boolean; mobile: bool
       const nextDistance = distance()
       if (lastPinchDistance > 0 && nextDistance > 0) {
         // Fingers spreading apart decreases FOV (zoom in); closing increases it.
-        perspective.fov = THREE.MathUtils.clamp(perspective.fov - (nextDistance - lastPinchDistance) * 0.045, 36, 74)
+        perspective.fov = THREE.MathUtils.clamp(perspective.fov - (nextDistance - lastPinchDistance) * 0.045, 34, 72)
         perspective.updateProjectionMatrix()
       }
       lastPinchDistance = nextDistance
@@ -201,153 +201,6 @@ function UnderwaterFovZoom({ enabled, mobile }: { enabled: boolean; mobile: bool
       pointers.clear()
     }
   }, [enabled, mobile, camera, gl])
-  return null
-}
-
-
-type UnderwaterInputVector = { x: number; z: number; y?: number }
-type UnderwaterControlsImpl = { target: THREE.Vector3; update: () => void }
-
-/**
- * The only owner of underwater translation and camera follow.
- * UI/keyboard controls write a ref; canvas taps write a 3D destination ref.
- * This controller updates the real Avatar group, so the rendered diver,
- * multiplayer position and streaming reef all share one position source.
- */
-function UnderwaterMovementController({
-  enabled,
-  avatarRootRef,
-  moveVectorRef,
-  destinationRef,
-  positionRef,
-  rotationRef,
-  onMove,
-}: {
-  enabled: boolean
-  avatarRootRef: MutableRefObject<THREE.Group | null>
-  moveVectorRef: MutableRefObject<UnderwaterInputVector>
-  destinationRef: MutableRefObject<THREE.Vector3 | null>
-  positionRef: MutableRefObject<THREE.Vector3>
-  rotationRef: MutableRefObject<number>
-  onMove: (position: [number, number, number], rotationY: number) => void
-}) {
-  const camera = useThree((state) => state.camera)
-  const controls = useThree((state) => state.controls) as UnderwaterControlsImpl | null
-  const lastReport = useRef(0)
-  const lastReportedPosition = useRef(new THREE.Vector3())
-
-  useEffect(() => {
-    if (!enabled) return
-    const receiveInput = (event: Event) => {
-      const detail = (event as CustomEvent<UnderwaterInputVector>).detail
-      if (!detail) return
-      moveVectorRef.current = {
-        x: THREE.MathUtils.clamp(Number(detail.x) || 0, -1, 1),
-        z: THREE.MathUtils.clamp(Number(detail.z) || 0, -1, 1),
-        y: THREE.MathUtils.clamp(Number(detail.y) || 0, -1, 1),
-      }
-    }
-    window.addEventListener('mpd-underwater-input', receiveInput)
-    return () => window.removeEventListener('mpd-underwater-input', receiveInput)
-  }, [enabled, moveVectorRef])
-
-  useFrame((_, rawDelta) => {
-    if (!enabled) return
-    const diver = avatarRootRef.current
-    if (!diver) return
-
-    const dt = Math.min(Math.max(rawDelta, 0), 0.05)
-    if (dt <= 0) return
-    const before = diver.position.clone()
-    const input = moveVectorRef.current
-    const inputX = THREE.MathUtils.clamp(Number(input.x) || 0, -1, 1)
-    const inputZ = THREE.MathUtils.clamp(Number(input.z) || 0, -1, 1)
-    const inputY = THREE.MathUtils.clamp(Number(input.y) || 0, -1, 1)
-    const horizontalMagnitude = Math.hypot(inputX, inputZ)
-    const isManual = horizontalMagnitude > 0.025 || Math.abs(inputY) > 0.025
-
-    if (isManual) {
-      // A manual command always wins over an earlier click waypoint.
-      destinationRef.current = null
-      if (horizontalMagnitude > 0.025) {
-        const forward = new THREE.Vector3()
-        camera.getWorldDirection(forward)
-        forward.y = 0
-        if (forward.lengthSq() < 0.0001) {
-          forward.set(Math.sin(diver.rotation.y), 0, Math.cos(diver.rotation.y))
-        }
-        forward.normalize()
-        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
-        const direction = right.multiplyScalar(inputX).addScaledVector(forward, -inputZ)
-        if (direction.lengthSq() > 0.0001) {
-          direction.normalize()
-          diver.position.addScaledVector(direction, 34 * dt)
-          const desiredYaw = Math.atan2(direction.x, direction.z)
-          let yawDelta = desiredYaw - diver.rotation.y
-          yawDelta = Math.atan2(Math.sin(yawDelta), Math.cos(yawDelta))
-          diver.rotation.y += yawDelta * Math.min(1, dt * 6.5)
-        }
-      }
-      if (Math.abs(inputY) > 0.025) {
-        const verticalSpeed = inputY > 0 ? 26 : 30
-        diver.position.y += inputY * verticalSpeed * dt
-      }
-    } else {
-      const destination = destinationRef.current
-      if (destination) {
-        destination.x = THREE.MathUtils.clamp(destination.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
-        destination.z = THREE.MathUtils.clamp(destination.z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
-        destination.y = THREE.MathUtils.clamp(destination.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.025)
-        const direction = destination.clone().sub(diver.position)
-        const distance = direction.length()
-        const step = 70 * dt
-        if (distance <= Math.max(0.7, step)) {
-          diver.position.copy(destination)
-          destinationRef.current = null
-        } else {
-          direction.multiplyScalar(1 / Math.max(distance, 0.0001))
-          diver.position.addScaledVector(direction, step)
-          const horizontalDistance = Math.hypot(direction.x, direction.z)
-          if (horizontalDistance > 0.001) {
-            const desiredYaw = Math.atan2(direction.x, direction.z)
-            let yawDelta = desiredYaw - diver.rotation.y
-            yawDelta = Math.atan2(Math.sin(yawDelta), Math.cos(yawDelta))
-            diver.rotation.y += yawDelta * Math.min(1, dt * 6.5)
-          }
-        }
-      }
-    }
-
-    // Keep the full 100 km x 100 km exploration area and 8 km depth reachable.
-    diver.position.x = THREE.MathUtils.clamp(diver.position.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
-    diver.position.z = THREE.MathUtils.clamp(diver.position.z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
-    diver.position.y = THREE.MathUtils.clamp(diver.position.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.025)
-
-    const movementDelta = diver.position.clone().sub(before)
-    positionRef.current.copy(diver.position)
-    rotationRef.current = diver.rotation.y
-
-    if (movementDelta.lengthSq() > 0.0000001) {
-      // Move camera and orbit target by exactly the diver's displacement. This
-      // preserves the same third-person distance while keeping zoom/orbit usable.
-      camera.position.add(movementDelta)
-      if (controls) {
-        controls.target.add(movementDelta)
-        controls.update()
-      } else {
-        camera.lookAt(diver.position.x, diver.position.y + 1.18, diver.position.z)
-      }
-    }
-
-    const now = performance.now()
-    const moved = diver.position.distanceToSquared(lastReportedPosition.current) > 0.0025
-    if (moved && now - lastReport.current >= 110) {
-      lastReport.current = now
-      lastReportedPosition.current.copy(diver.position)
-      onMove([diver.position.x, diver.position.y, diver.position.z], diver.rotation.y)
-    }
-  })
-
   return null
 }
 
@@ -397,7 +250,7 @@ export function StudioScene({
   const pendingPoolEntry = useRef<{ x: number; z: number } | null>(null)
   const avatarRootRef = useRef<THREE.Group | null>(null)
   const underwaterTargetRef = useRef<THREE.Vector3 | null>(null)
-  // High-frequency input is written directly to the avatar movement ref without React re-renders.
+  // High-frequency input is read directly by Avatar without React re-renders.
   const moveVectorRef = useRef<MoveVector>({ x: 0, z: 0, y: 0 })
   const [graphicsTier, setGraphicsTier] = useState<GraphicsTier | null>(null)
   const [adaptiveDpr, setAdaptiveDpr] = useState(0.9)
@@ -409,36 +262,23 @@ export function StudioScene({
   const handleLocalPosition = useCallback((position: [number, number, number], rotationY: number) => {
     localPositionRef.current.set(position[0], position[1], position[2])
     localRotationRef.current = rotationY
-    // Only the actual PoolWater mesh may initiate a dive. Walking or clicking on
-    // the surrounding deck remains ordinary ground navigation, so the pool's
-    // broad visual bounds cannot pull a nearby destination underwater.
-    if (underwaterRef.current && position[1] >= UNDERWATER_SURFACE_Y - 0.02) {
-      // Exit only at the actual waterline. The previous 0.10m threshold ended a
-      // dive too early and made the ascent control feel as if it stopped working.
-      window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
-      underwaterRef.current = false
-      underwaterTargetRef.current = null
-      moveVectorRef.current = { x: 0, z: 0, y: 0 }
-      setUnderwater(false)
-      setTravel({
-        position: new THREE.Vector3(THREE.MathUtils.clamp(position[0], -42.0, -26.0), 0.03, 9.0),
-        sit: false,
-        instant: true,
-      })
-    }
+    // Reaching the waterline must not silently teleport the diver back to land.
+    // The diver remains at the surface until the explicit HUD exit button is used.
     onLocalPosition(position, rotationY)
   }, [onLocalPosition])
 
   const handleMoveVector = useCallback((value: MoveVector) => {
     moveVectorRef.current = { x: value.x, z: value.z, y: value.y ?? 0 }
-    // The underwater movement controller reads this ref every frame. Manual input
-    // cancels an earlier click waypoint immediately.
+    // Avatar reads this shared ref in its own frame loop. Manual input cancels
+    // the underwater waypoint immediately. Do not change React travel state
+    // while already submerged: that state transition used to trigger an effect
+    // which cleared the input ref before the next animation frame.
     if (Math.hypot(value.x, value.z) > 0.018 || Math.abs(value.y ?? 0) > 0.018) {
       underwaterTargetRef.current = null
       pendingPoolEntry.current = null
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       setSeatActivity(null)
-      setTravel(null)
+      if (!underwaterRef.current) setTravel(null)
     }
   }, [])
 
@@ -452,9 +292,9 @@ export function StudioScene({
       moveVectorRef.current = { x: 0, z: 0, y: 0 }
       // Seed the world/camera anchor before the underwater scene mounts. This
       // prevents its first frame from anchoring at the old outdoor spawn point.
-      localPositionRef.current.set(poolTarget.x, -3.0, poolTarget.z)
+      localPositionRef.current.set(poolTarget.x, -12.0, poolTarget.z)
       setUnderwater(true)
-      setTravel({ position: new THREE.Vector3(poolTarget.x, -3.0, poolTarget.z), sit: false, instant: true })
+      setTravel({ position: new THREE.Vector3(poolTarget.x, -12.0, poolTarget.z), sit: false, instant: true })
       return
     }
     const selectedWorkout = workoutModeRef.current
@@ -596,14 +436,14 @@ export function StudioScene({
     }
     horizontal.normalize()
 
-    // A single tap sets a reachable 3D waypoint. The driver then swims there
-    // smoothly; repeated taps can continue across the full 100km exploration area.
+    // A single tap sets a reachable 3D waypoint. Avatar consumes it directly
+    // in the same frame loop as joystick and ascent/descent input.
     const distance = THREE.MathUtils.clamp(
-      220 + (1 - Math.abs(pointerY)) * 620 + Math.abs(pointerX) * 240,
-      220,
-      1_080,
+      1_200 + (1 - Math.abs(pointerY)) * 2_600 + Math.abs(pointerX) * 1_000,
+      900,
+      4_800,
     )
-    const vertical = THREE.MathUtils.clamp(pointerY * 320 + direction.y * 160, -520, 520)
+    const vertical = THREE.MathUtils.clamp(pointerY * 620 + direction.y * 280, -900, 900)
     const destinationY = THREE.MathUtils.clamp(current.y + vertical, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.025)
     underwaterTargetRef.current = new THREE.Vector3(
       THREE.MathUtils.clamp(current.x + horizontal.x * distance, UNDERWATER_MIN_X, UNDERWATER_MAX_X),
@@ -613,7 +453,7 @@ export function StudioScene({
     moveVectorRef.current = { x: 0, z: 0, y: 0 }
     pendingPoolEntry.current = null
     setSeatActivity(null)
-    setTravel(null)
+    // Do not touch `travel` while underwater. Waypoints live in their own ref.
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
   }, [])
 
@@ -715,7 +555,7 @@ export function StudioScene({
         onPointerMissed={() => { document.body.style.cursor = 'auto' }}
       >
         <fog attach="fog" args={underwater
-          ? ['#07506a', 5200, 42000]
+          ? ['#07506a', 2600, 18000]
           : [isNight ? '#0b1329' : '#d8edf5', 420, 1250]}
         />
 
@@ -786,24 +626,13 @@ export function StudioScene({
           underwaterMode={underwater}
           workoutMode={workoutMode}
           moveVectorRef={moveVectorRef}
-          avatarRootRef={avatarRootRef}
           underwaterTargetRef={underwaterTargetRef}
+          avatarRootRef={avatarRootRef}
           onArrive={handleAvatarArrive}
           onMove={handleLocalPosition}
           displayName={userName || '접속 중'}
           resetKey={resetKey}
         />
-        {underwater && (
-          <UnderwaterMovementController
-            enabled={underwater}
-            avatarRootRef={avatarRootRef}
-            moveVectorRef={moveVectorRef}
-            destinationRef={underwaterTargetRef}
-            positionRef={localPositionRef}
-            rotationRef={localRotationRef}
-            onMove={handleLocalPosition}
-          />
-        )}
         {players
           .filter((player) => !underwater || (player.position[0] >= UNDERWATER_MIN_X && player.position[0] <= UNDERWATER_MAX_X && player.position[2] >= UNDERWATER_MIN_Z && player.position[2] <= UNDERWATER_MAX_Z))
           .map((player) => <RemoteAvatar key={player.userId} player={player} onSelect={onSelectPlayer} />)}

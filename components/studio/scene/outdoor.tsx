@@ -140,100 +140,14 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   return blended
 }
 
-function createHorizonBalancedSkyTexture(source: THREE.Texture, coastalSource: THREE.Texture, quality: GraphicsTier) {
-  if (typeof document === 'undefined') return source
-  const image = source.image as HTMLImageElement
-  const coastImage = coastalSource.image as HTMLImageElement
-  const sourceWidth = image?.naturalWidth || image?.width || 0
-  const sourceHeight = image?.naturalHeight || image?.height || 0
-  const coastWidth = coastImage?.naturalWidth || coastImage?.width || 0
-  const coastHeight = coastImage?.naturalHeight || coastImage?.height || 0
-  if (!sourceWidth || !sourceHeight || !coastWidth || !coastHeight) return source
-
-  const width = quality === 'mobile' ? 1024 : 2048
-  const height = width / 2
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return source
-  ctx.imageSmoothingEnabled = true
-  ctx.imageSmoothingQuality = 'high'
-
-  // Keep real blue sky overhead, but move the original cloud shelf up to the
-  // horizon. The previous export had a very large cloudless centre which was
-  // mapped to the viewer's horizon and looked like an empty hole above the trees.
-  const cropTop = Math.round(sourceHeight * 0.16)
-  const cropBottom = Math.round(sourceHeight * 0.015)
-  ctx.drawImage(image, 0, cropTop, sourceWidth, sourceHeight - cropTop - cropBottom, 0, 0, width, height)
-
-  // Fill the former cloudless band with the actual cloud field from the front
-  // coastal panorama. The crop deliberately excludes the trees and sea; a soft
-  // edge mask blends it into the 360 sky without adding a visible rectangular card.
-  const bandHeight = Math.round(height * 0.62)
-  const band = document.createElement('canvas')
-  band.width = width
-  band.height = bandHeight
-  const bandCtx = band.getContext('2d')
-  if (bandCtx) {
-    bandCtx.imageSmoothingEnabled = true
-    bandCtx.imageSmoothingQuality = 'high'
-    const cropX = Math.round(coastWidth * 0.19)
-    const cropY = Math.round(coastHeight * 0.105)
-    const cropW = Math.round(coastWidth * 0.62)
-    const cropH = Math.round(coastHeight * 0.315)
-    bandCtx.drawImage(coastImage, cropX, cropY, cropW, cropH, 0, 0, width, bandHeight)
-
-    // Fade left/right and top/bottom edges so the overlay cannot form a hard seam.
-    bandCtx.globalCompositeOperation = 'destination-in'
-    const horizontalMask = bandCtx.createLinearGradient(0, 0, width, 0)
-    horizontalMask.addColorStop(0, 'rgba(255,255,255,0)')
-    horizontalMask.addColorStop(0.09, 'rgba(255,255,255,0.72)')
-    horizontalMask.addColorStop(0.20, 'rgba(255,255,255,0.88)')
-    horizontalMask.addColorStop(0.80, 'rgba(255,255,255,0.88)')
-    horizontalMask.addColorStop(0.91, 'rgba(255,255,255,0.72)')
-    horizontalMask.addColorStop(1, 'rgba(255,255,255,0)')
-    bandCtx.fillStyle = horizontalMask
-    bandCtx.fillRect(0, 0, width, bandHeight)
-    const verticalMask = bandCtx.createLinearGradient(0, 0, 0, bandHeight)
-    verticalMask.addColorStop(0, 'rgba(255,255,255,0)')
-    verticalMask.addColorStop(0.12, 'rgba(255,255,255,0.88)')
-    verticalMask.addColorStop(0.88, 'rgba(255,255,255,0.88)')
-    verticalMask.addColorStop(1, 'rgba(255,255,255,0)')
-    bandCtx.fillStyle = verticalMask
-    bandCtx.fillRect(0, 0, width, bandHeight)
-    bandCtx.globalCompositeOperation = 'source-over'
-
-    ctx.save()
-    ctx.globalCompositeOperation = 'screen'
-    ctx.globalAlpha = 0.78
-    ctx.drawImage(band, 0, Math.round(height * 0.15), width, bandHeight)
-    ctx.restore()
-  }
-
-  const adjusted = new THREE.CanvasTexture(canvas)
-  adjusted.colorSpace = THREE.SRGBColorSpace
-  adjusted.mapping = THREE.EquirectangularReflectionMapping
-  adjusted.wrapS = THREE.RepeatWrapping
-  adjusted.wrapT = THREE.ClampToEdgeWrapping
-  adjusted.minFilter = THREE.LinearMipmapLinearFilter
-  adjusted.magFilter = THREE.LinearFilter
-  adjusted.generateMipmaps = true
-  adjusted.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 8 : 12
-  adjusted.needsUpdate = true
-  return adjusted
-}
-
 function SkyCanopy({ quality }: { quality: GraphicsTier }) {
-  const source = useTexture(quality === 'mobile'
-    ? '/images/mpd-sky-panorama-v39-mobile.webp'
-    : '/images/mpd-sky-panorama-v39.webp')
-  const coastalSource = useTexture(quality === 'mobile'
-    ? '/images/mpd-front-coastal-bay-mobile.webp'
-    : '/images/mpd-front-coastal-bay.webp')
-  const texture = useMemo(() => createHorizonBalancedSkyTexture(source, coastalSource, quality), [source, coastalSource, quality])
+  // Use the original V32 360 sky map again. V39's very clear upper band read as
+  // a large empty opening from the studio camera angle; V32 carries more natural
+  // cirrus detail in the upper hemisphere. Do not vertically stretch the map.
+  const texture = useTexture(quality === 'mobile'
+    ? '/images/mpd-sky-panorama-v41-mobile.webp'
+    : '/images/mpd-sky-panorama-v41.webp')
   const scene = useThree((state) => state.scene)
-  useEffect(() => () => { if (texture !== source) texture.dispose() }, [texture, source])
   useLayoutEffect(() => {
     const previousBackground = scene.background
     const previousRotation = scene.backgroundRotation.clone()
@@ -245,6 +159,7 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
     texture.minFilter = THREE.LinearMipmapLinearFilter
     texture.magFilter = THREE.LinearFilter
     texture.generateMipmaps = true
+    texture.anisotropy = quality === 'mobile' ? 2 : 12
     texture.needsUpdate = true
     scene.background = texture
     scene.backgroundRotation.set(0, -Math.PI / 2, 0)
@@ -254,23 +169,21 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
       scene.backgroundRotation.copy(previousRotation)
       scene.backgroundIntensity = previousIntensity
     }
-  }, [scene, texture])
+  }, [scene, texture, quality])
   return null
 }
 
 function FrontCoastalBackdrop({ quality }: { quality: GraphicsTier }) {
   const source = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const image = useMemo(() => createCoastEdgeBlend(source, quality), [source, quality])
-  // Use the exact same radius and vertical centre as ForestPanorama. The coastal arc
-  // overlaps the forest arc by about 10 degrees at each end, and the feathered coast
-  // edges reveal the forest underneath without a radial step or a flat-card intersection.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(280, 280, 96, quality === 'mobile' ? 64 : 112, 1, true, Math.PI - 0.92, 1.84), [quality])
+  // Match the restored V32 forest arc dimensions and retain a soft horizontal coast/forest overlap.
+  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 56 : 96, 1, true, Math.PI - 0.92, 1.84), [quality])
   useEffect(() => () => {
     if (image !== source) image.dispose()
     geometry.dispose()
   }, [image, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, -2, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, 18, 0]} raycast={noRaycast} renderOrder={-90} frustumCulled={false}>
       <meshBasicMaterial map={image} transparent toneMapped={false} fog={false} side={THREE.BackSide} depthWrite={false} />
     </mesh>
   )
@@ -422,13 +335,13 @@ function ForestPanorama({ quality }: { quality: GraphicsTier }) {
   const coastalSource = useTexture(quality === 'mobile' ? '/images/mpd-front-coastal-bay-mobile.webp' : '/images/mpd-front-coastal-bay.webp')
   const texture = useMemo(() => createGreenForestTexture(source, coastalSource, quality), [source, coastalSource, quality])
   // Increase the angular overlap so the coastal fade always reveals real forest texture.
-  const geometry = useMemo(() => new THREE.CylinderGeometry(280, 280, 96, quality === 'mobile' ? 72 : 128, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
+  const geometry = useMemo(() => new THREE.CylinderGeometry(224, 224, 182, quality === 'mobile' ? 64 : 112, 1, true, Math.PI + 0.10, Math.PI * 2 - 0.20), [quality])
   useEffect(() => () => {
     if (texture !== source) texture.dispose()
     geometry.dispose()
   }, [texture, source, geometry])
   return (
-    <mesh geometry={geometry} position={[0, -2, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
+    <mesh geometry={geometry} position={[0, 18, 0]} raycast={noRaycast} renderOrder={-95} frustumCulled={false}>
       <meshBasicMaterial map={texture} side={THREE.BackSide} toneMapped={false} fog={false} depthWrite={false} />
     </mesh>
   )

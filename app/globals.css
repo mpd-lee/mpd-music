@@ -1322,3 +1322,10 @@ body[data-mpd-underwater="true"] .mpd-guestbook-panel {
     top: max(142px, calc(env(safe-area-inset-top) + 132px)) !important;
   }
 }
+
+
+/* MPD V41: lift only the music player's expanded/minimized control above the desktop move hint. */
+@media (min-width: 821px) and (pointer: fine) {
+  .mpd-music-player { bottom: 46px !important; }
+  .mpd-music-player-minimized-toggle { bottom: 46px !important; }
+}
