@@ -1324,10 +1324,8 @@ body[data-mpd-underwater="true"] .mpd-guestbook-panel {
 }
 
 
-/* MPD V41: tiny upward clearance for the lower-right music player only. */
-.mpd-music-player { bottom: 28px !important; }
-.mpd-music-player-minimized-button { bottom: 28px !important; }
-@media (pointer: coarse), (max-width: 820px) {
-  .mpd-music-player { bottom: calc(max(7px, env(safe-area-inset-bottom)) + 10px) !important; }
-  .mpd-music-player-minimized-button { bottom: calc(max(7px, env(safe-area-inset-bottom)) + 10px) !important; }
+/* V42: raise only the infinite-repeat music player so it clears the movement hint. */
+@media (hover: hover) and (pointer: fine) and (min-width: 821px) {
+  .mpd-music-player { bottom: 54px !important; }
+  .mpd-music-player-toggle { bottom: 54px !important; }
 }

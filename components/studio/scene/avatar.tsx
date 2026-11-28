@@ -14,8 +14,8 @@ type OrbitControlsImpl = { target: THREE.Vector3; update: () => void }
 
 export const AVATAR_START = new THREE.Vector3(0, 0, 4.2)
 const SPEED = 4.25
-const UNDERWATER_INPUT_SPEED = 38.0
-const UNDERWATER_CLICK_SPEED = 92.0
+const UNDERWATER_INPUT_SPEED = 42.0
+const UNDERWATER_CLICK_SPEED = 84.0
 const UNDERWATER_ASCENT_SPEED = 25.0
 const UNDERWATER_DESCENT_SPEED = 30.0
 type MoveVector = { x: number; z: number; y?: number }
@@ -30,6 +30,7 @@ type AvatarProps = {
   workoutMode?: WorkoutMode
   moveVectorRef: MutableRefObject<MoveVector>
   avatarRootRef?: MutableRefObject<THREE.Group | null>
+  underwaterTargetRef?: MutableRefObject<THREE.Vector3 | null>
   sitOnArrival?: boolean
   lieOnArrival?: boolean
   seatRotation?: number
@@ -72,7 +73,7 @@ function ScubaBubbleTrail() {
   )
 }
 
-export function Avatar({ target, instantTravel = false, underwaterMode = false, workoutMode = null, moveVectorRef, avatarRootRef, sitOnArrival = false, lieOnArrival = false, seatRotation, seatActivity = null, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
+export function Avatar({ target, instantTravel = false, underwaterMode = false, workoutMode = null, moveVectorRef, avatarRootRef, underwaterTargetRef, sitOnArrival = false, lieOnArrival = false, seatRotation, seatActivity = null, onArrive, onMove, displayName = 'MPD-Lee', resetKey }: AvatarProps) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const leftLeg = useRef<THREE.Group>(null)
@@ -117,13 +118,8 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     // the diver by the matching projection ratio so the avatar remains the same
     // apparent size as it is outdoors; subsequent FOV zoom affects both together.
     const outdoorFov = coarse ? 52 : 50
-    // A slightly wider underwater lens reveals more reef. Scale the diver by
-    // the exact projection ratio so the diver stays the same apparent size as
-    // the outdoor avatar; the shared FOV zoom then scales both together.
-    const underwaterFov = coarse ? 56 : 54
-    const projectionCompensation = Math.tan(THREE.MathUtils.degToRad(underwaterFov) / 2)
-      / Math.tan(THREE.MathUtils.degToRad(outdoorFov) / 2)
-    root.current.scale.setScalar(underwaterMode ? projectionCompensation : 1)
+    const underwaterFov = coarse ? 54 : 52
+    root.current.scale.setScalar(underwaterMode ? 1.04 : 1)
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
       perspective.fov = underwaterMode ? underwaterFov : outdoorFov
@@ -243,6 +239,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   }, [underwaterMode, scene])
 
 
+
   useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
     const g = root.current
@@ -258,62 +255,67 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const inputLength = Math.hypot(input.x, input.z)
 
     if (underwaterMode) {
+      // One authoritative movement owner: this Avatar frame updates the diver,
+      // waypoint, camera and replicated position together. Previously a second
+      // scene driver competed with Avatar/OrbitControls, which could leave the
+      // diver visually frozen even while the controls displayed active input.
       const verticalInput = THREE.MathUtils.clamp(input.y ?? 0, -1, 1)
-      const hasManualInput = inputLength > 0.012 || Math.abs(verticalInput) > 0.012
+      const hasHorizontalInput = inputLength > 0.018
+      const hasVerticalInput = Math.abs(verticalInput) > 0.018
+      const hasManualInput = hasHorizontalInput || hasVerticalInput
+
+      sitting.current = false
+      lying.current = false
+      arrived.current = true
 
       if (hasManualInput) {
-        // One source of truth: this Avatar useFrame owns underwater translation.
-        // Keyboard, joystick and rise/fall controls all update moveVectorRef.
-        arrived.current = true
-        route.current = []
-        sitting.current = false
-        lying.current = false
+        if (underwaterTargetRef) underwaterTargetRef.current = null
 
-        if (inputLength > 0.012) {
+        if (hasHorizontalInput) {
           const forward = new THREE.Vector3()
           camera.getWorldDirection(forward)
           forward.y = 0
           if (forward.lengthSq() < 0.0001) {
-            forward.set(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y))
+            forward.set(-Math.sin(g.rotation.y), 0, -Math.cos(g.rotation.y))
           }
           forward.normalize()
-          const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
+          // world-up × camera-forward matches the outdoor controller orientation.
+          const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize()
           const direction = right.multiplyScalar(input.x).addScaledVector(forward, -input.z)
           if (direction.lengthSq() > 0.0001) {
             direction.normalize()
             g.position.addScaledVector(direction, UNDERWATER_INPUT_SPEED * dt)
             const desired = Math.atan2(direction.x, direction.z)
-            let diff = desired - g.rotation.y
-            diff = Math.atan2(Math.sin(diff), Math.cos(diff))
-            g.rotation.y += diff * Math.min(1, dt * 7.5)
+            let difference = desired - g.rotation.y
+            difference = Math.atan2(Math.sin(difference), Math.cos(difference))
+            g.rotation.y += difference * Math.min(1, dt * 8.5)
             moving = true
           }
         }
 
-        if (Math.abs(verticalInput) > 0.012) {
+        if (hasVerticalInput) {
           const verticalSpeed = verticalInput > 0 ? UNDERWATER_ASCENT_SPEED : UNDERWATER_DESCENT_SPEED
-          g.position.y += verticalInput * verticalSpeed * dt
+          g.position.y += Math.sign(verticalInput) * verticalSpeed * dt
           moving = true
         }
-      } else if (target && !arrived.current) {
-        // Tap/click destinations are true 3D waypoints, not land A* routes.
-        const waypoint = route.current[routeIndex.current] ?? target
-        const delta = waypoint.clone().sub(g.position)
-        const distance = delta.length()
-        if (distance > 0.8) {
-          const horizontalDistance = Math.hypot(delta.x, delta.z)
-          if (horizontalDistance > 0.02) {
-            const desired = Math.atan2(delta.x, delta.z)
-            let diff = desired - g.rotation.y
-            diff = Math.atan2(Math.sin(diff), Math.cos(diff))
-            g.rotation.y += diff * Math.min(1, dt * 7.5)
+      } else {
+        const destination = underwaterTargetRef?.current ?? null
+        if (destination) {
+          const deltaToTarget = destination.clone().sub(g.position)
+          const distance = deltaToTarget.length()
+          if (distance > 0.85) {
+            if (Math.hypot(deltaToTarget.x, deltaToTarget.z) > 0.02) {
+              const desired = Math.atan2(deltaToTarget.x, deltaToTarget.z)
+              let difference = desired - g.rotation.y
+              difference = Math.atan2(Math.sin(difference), Math.cos(difference))
+              g.rotation.y += difference * Math.min(1, dt * 8.5)
+            }
+            g.position.addScaledVector(deltaToTarget, Math.min(1, (UNDERWATER_CLICK_SPEED * dt) / distance))
+            moving = true
+          } else {
+            g.position.copy(destination)
+            underwaterTargetRef!.current = null
           }
-          g.position.addScaledVector(delta, Math.min(1, (UNDERWATER_CLICK_SPEED * dt) / distance))
-          moving = true
-        } else {
-          g.position.copy(waypoint)
-          arrived.current = true
-          onArrive()
         }
       }
     } else {
@@ -326,7 +328,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         forward.y = 0
         if (forward.lengthSq() < 0.001) forward.set(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y))
         forward.normalize()
-        const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
+        const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), forward).normalize()
         const direction = right.multiplyScalar(input.x).addScaledVector(forward, -input.z)
         if (direction.lengthSq() > 0.001) {
           direction.normalize()
@@ -543,10 +545,10 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     body.current!.position.y = THREE.MathUtils.lerp(body.current!.position.y, bodyY, 0.2)
 
     const cameraDelta = g.position.clone().sub(prev.current)
-    if (cameraDelta.lengthSq() > 0) {
-      // Keep the camera and orbit target locked to the same avatar displacement
-      // in both realms. This is intentionally inside Avatar so no second frame
-      // driver can race the avatar or leave the camera behind underwater.
+    if (cameraDelta.lengthSq() > 1e-10) {
+      // The camera follows the exact avatar displacement in both realms. The
+      // controls target is translated with it, preserving the user's 360° orbit
+      // while the diver moves freely through the underwater volume.
       camera.position.add(cameraDelta)
       if (controls) {
         controls.target.add(cameraDelta)
@@ -558,7 +560,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     prev.current.copy(g.position)
 
     const now = performance.now()
-    if (onMove && now - lastMoveSent.current > 140) {
+    if (onMove && now - lastMoveSent.current > (underwaterMode ? 65 : 140)) {
       const moved = g.position.distanceToSquared(lastSentPosition.current) > 0.0025
       let rotationDelta = g.rotation.y - lastSentRotation.current
       rotationDelta = Math.atan2(Math.sin(rotationDelta), Math.cos(rotationDelta))

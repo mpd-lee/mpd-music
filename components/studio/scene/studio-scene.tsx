@@ -146,16 +146,16 @@ function UnderwaterFovZoom({ enabled, mobile }: { enabled: boolean; mobile: bool
     if (!enabled || !(camera as THREE.PerspectiveCamera).isPerspectiveCamera) return
     const perspective = camera as THREE.PerspectiveCamera
     const canvas = gl.domElement
-    const baseFov = mobile ? 56 : 54
+    const baseFov = mobile ? 54 : 52
     perspective.fov = baseFov
     perspective.updateProjectionMatrix()
     const clampFov = () => {
-      perspective.fov = THREE.MathUtils.clamp(perspective.fov, 34, 76)
+      perspective.fov = THREE.MathUtils.clamp(perspective.fov, 34, 72)
       perspective.updateProjectionMatrix()
     }
     const wheel = (event: WheelEvent) => {
       event.preventDefault()
-      perspective.fov = THREE.MathUtils.clamp(perspective.fov + event.deltaY * 0.018, 34, 76)
+      perspective.fov = THREE.MathUtils.clamp(perspective.fov + event.deltaY * 0.018, 34, 72)
       perspective.updateProjectionMatrix()
     }
     const pointers = new Map<number, { x: number; y: number }>()
@@ -177,7 +177,7 @@ function UnderwaterFovZoom({ enabled, mobile }: { enabled: boolean; mobile: bool
       const nextDistance = distance()
       if (lastPinchDistance > 0 && nextDistance > 0) {
         // Fingers spreading apart decreases FOV (zoom in); closing increases it.
-        perspective.fov = THREE.MathUtils.clamp(perspective.fov - (nextDistance - lastPinchDistance) * 0.045, 34, 76)
+        perspective.fov = THREE.MathUtils.clamp(perspective.fov - (nextDistance - lastPinchDistance) * 0.045, 34, 72)
         perspective.updateProjectionMatrix()
       }
       lastPinchDistance = nextDistance
@@ -249,7 +249,8 @@ export function StudioScene({
   const localRotationRef = useRef(0)
   const pendingPoolEntry = useRef<{ x: number; z: number } | null>(null)
   const avatarRootRef = useRef<THREE.Group | null>(null)
-  // A single shared input ref is consumed by Avatar.useFrame; no competing movement driver runs.
+  const underwaterTargetRef = useRef<THREE.Vector3 | null>(null)
+  // High-frequency input is read directly by Avatar without React re-renders.
   const moveVectorRef = useRef<MoveVector>({ x: 0, z: 0, y: 0 })
   const [graphicsTier, setGraphicsTier] = useState<GraphicsTier | null>(null)
   const [adaptiveDpr, setAdaptiveDpr] = useState(0.9)
@@ -269,6 +270,7 @@ export function StudioScene({
       // dive too early and made the ascent control feel as if it stopped working.
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       underwaterRef.current = false
+      underwaterTargetRef.current = null
       moveVectorRef.current = { x: 0, z: 0, y: 0 }
       setUnderwater(false)
       setTravel({
@@ -282,9 +284,10 @@ export function StudioScene({
 
   const handleMoveVector = useCallback((value: MoveVector) => {
     moveVectorRef.current = { x: value.x, z: value.z, y: value.y ?? 0 }
-    // Avatar reads this shared ref every frame. Manual input cancels click targets
-    // and seated/workout routes immediately, without waiting for a React frame.
+    // Avatar reads this ref every frame in the single underwater movement loop.
+    // Manual input cancels click destinations and land routes immediately.
     if (Math.hypot(value.x, value.z) > 0.018 || Math.abs(value.y ?? 0) > 0.018) {
+      underwaterTargetRef.current = null
       pendingPoolEntry.current = null
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       setSeatActivity(null)
@@ -298,6 +301,7 @@ export function StudioScene({
       pendingPoolEntry.current = null
       window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
       underwaterRef.current = true
+      underwaterTargetRef.current = null
       moveVectorRef.current = { x: 0, z: 0, y: 0 }
       // Seed the world/camera anchor before the underwater scene mounts. This
       // prevents its first frame from anchoring at the old outdoor spawn point.
@@ -316,6 +320,7 @@ export function StudioScene({
 
   const riseToSurface = useCallback(() => {
     pendingPoolEntry.current = null
+    underwaterTargetRef.current = null
     moveVectorRef.current = { x: 0, z: 0, y: 0 }
     underwaterRef.current = false
     setUnderwater(false)
@@ -444,16 +449,17 @@ export function StudioScene({
     }
     horizontal.normalize()
 
-    // A single tap sets a reachable 3D waypoint. Avatar.useFrame swims there
-    // smoothly; repeated taps can continue across the full 100km exploration area.
+    // A tap creates a long, camera-ray-aligned 3D waypoint. The Avatar's single
+    // underwater movement loop consumes it, so click/touch and joystick never
+    // compete to move the same group or camera.
     const distance = THREE.MathUtils.clamp(
-      520 + (1 - Math.abs(pointerY)) * 820 + Math.abs(pointerX) * 260,
-      360,
-      1_800,
+      620 + (1 - Math.abs(pointerY)) * 1_420 + Math.abs(pointerX) * 380,
+      420,
+      2_600,
     )
-    const vertical = THREE.MathUtils.clamp(pointerY * 320 + direction.y * 160, -520, 520)
+    const vertical = THREE.MathUtils.clamp(direction.y * distance * 0.42 + pointerY * 110, -620, 620)
     const destinationY = THREE.MathUtils.clamp(current.y + vertical, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.025)
-    const destination = new THREE.Vector3(
+    underwaterTargetRef.current = new THREE.Vector3(
       THREE.MathUtils.clamp(current.x + horizontal.x * distance, UNDERWATER_MIN_X, UNDERWATER_MAX_X),
       destinationY,
       THREE.MathUtils.clamp(current.z + horizontal.z * distance, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z),
@@ -461,7 +467,7 @@ export function StudioScene({
     moveVectorRef.current = { x: 0, z: 0, y: 0 }
     pendingPoolEntry.current = null
     setSeatActivity(null)
-    setTravel({ position: destination, sit: false })
+    setTravel(null)
     window.dispatchEvent(new Event('mpd-stop-fitness-machines'))
   }, [])
 
@@ -635,6 +641,7 @@ export function StudioScene({
           workoutMode={workoutMode}
           moveVectorRef={moveVectorRef}
           avatarRootRef={avatarRootRef}
+          underwaterTargetRef={underwaterTargetRef}
           onArrive={handleAvatarArrive}
           onMove={handleLocalPosition}
           displayName={userName || '접속 중'}

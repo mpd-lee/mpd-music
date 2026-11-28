@@ -140,75 +140,87 @@ function createCoastEdgeBlend(source: THREE.Texture, quality: GraphicsTier) {
   return blended
 }
 
-function createSkyHorizonFillTexture(source: THREE.Texture, quality: GraphicsTier) {
-  // V29 has useful cloud detail but its densest cloud bank sits too low in the
-  // equirectangular image. A gentle latitude warp moves that bank toward the
-  // horizon without cutting the zenith, adding a flat colour cap, or stretching
-  // the forest layer. This is a runtime texture transform, not a generated image.
-  if (typeof document === 'undefined') return source
-  const image = source.image as HTMLImageElement
-  const sourceWidth = image?.naturalWidth || image?.width || 0
-  const sourceHeight = image?.naturalHeight || image?.height || 0
-  if (!sourceWidth || !sourceHeight) return source
-
-  const width = Math.min(sourceWidth, quality === 'mobile' ? 1024 : 2048)
-  const height = Math.max(1, Math.round(width * sourceHeight / sourceWidth))
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const context = canvas.getContext('2d', { willReadFrequently: true })
-  if (!context) return source
-  context.imageSmoothingEnabled = true
-  context.imageSmoothingQuality = 'high'
-  context.drawImage(image, 0, 0, width, height)
-
-  const original = context.getImageData(0, 0, width, height)
-  const output = context.createImageData(width, height)
-  const src = original.data
-  const dst = output.data
-  const maxY = height - 1
-  const maxX = width * 4
-  for (let y = 0; y < height; y += 1) {
-    const t = y / Math.max(1, maxY)
-    // Identity at both poles, +0.16 latitude shift at the horizon. This relocates
-    // dense cumulus from the lower third to the camera's horizontal sightline.
-    const sourceT = THREE.MathUtils.clamp(t + 0.16 * Math.sin(Math.PI * t), 0, 1)
-    const sourceY = sourceT * maxY
-    const y0 = Math.floor(sourceY)
-    const y1 = Math.min(maxY, y0 + 1)
-    const blend = sourceY - y0
-    const row0 = y0 * maxX
-    const row1 = y1 * maxX
-    const outRow = y * maxX
-    for (let x = 0; x < maxX; x += 4) {
-      dst[outRow + x] = Math.round(src[row0 + x] * (1 - blend) + src[row1 + x] * blend)
-      dst[outRow + x + 1] = Math.round(src[row0 + x + 1] * (1 - blend) + src[row1 + x + 1] * blend)
-      dst[outRow + x + 2] = Math.round(src[row0 + x + 2] * (1 - blend) + src[row1 + x + 2] * blend)
-      dst[outRow + x + 3] = 255
-    }
-  }
-  context.putImageData(output, 0, 0)
-  const corrected = new THREE.CanvasTexture(canvas)
-  corrected.colorSpace = THREE.SRGBColorSpace
-  corrected.mapping = THREE.EquirectangularReflectionMapping
-  corrected.wrapS = THREE.RepeatWrapping
-  corrected.wrapT = THREE.ClampToEdgeWrapping
-  corrected.minFilter = THREE.LinearMipmapLinearFilter
-  corrected.magFilter = THREE.LinearFilter
-  corrected.generateMipmaps = true
-  corrected.anisotropy = quality === 'mobile' ? 2 : quality === 'balanced' ? 10 : 16
-  corrected.needsUpdate = true
-  return corrected
-}
-
 function SkyCanopy({ quality }: { quality: GraphicsTier }) {
-  // Use the V29 2:1 panorama: its higher, denser cirrus and cumulus coverage fills
-  // the upper canopy view. The V39 panorama's blue zenith band read as an empty
-  // ceiling when seen from the pavilion camera.
+  // Keep the proven V29 sky source, but remap its cloud bank upward into the
+  // camera's horizon band. The original equirectangular image kept most cumulus
+  // below the horizon, leaving a large flat-blue opening over the forest.
   const source = useTexture(quality === 'mobile'
     ? '/images/mpd-sky-canopy-v29-mobile.webp'
     : '/images/mpd-sky-canopy-v29.webp')
-  const texture = useMemo(() => createSkyHorizonFillTexture(source, quality), [source, quality])
+  const coastalSource = useTexture(quality === 'mobile'
+    ? '/images/mpd-front-coastal-bay-mobile.webp'
+    : '/images/mpd-front-coastal-bay.webp')
+  const texture = useMemo(() => {
+    const image = source.image as HTMLImageElement
+    const sourceWidth = image?.naturalWidth || image?.width || 0
+    const sourceHeight = image?.naturalHeight || image?.height || 0
+    if (!sourceWidth || !sourceHeight || typeof document === 'undefined') return source
+
+    const width = Math.min(sourceWidth, quality === 'mobile' ? 1024 : 2048)
+    const height = Math.max(2, Math.round(width * sourceHeight / sourceWidth))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) return source
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+
+    // Sample from 24% down the source and stretch to the full spherical height.
+    // This moves the real lower cloud bank into the forward horizon without
+    // painting artificial clouds, adding blur, or creating a transparent cap.
+    const sourceTop = Math.round(sourceHeight * 0.24)
+    context.drawImage(image, 0, sourceTop, sourceWidth, sourceHeight - sourceTop, 0, 0, width, height)
+
+    // The front bay already contains the exact cloud style and colour seen at
+    // the pavilion horizon. Reuse only its sky-only centre crop as a soft cloud
+    // band to bridge the otherwise empty blue zenith. The alpha mask fades both
+    // edges, so no tree, sun, horizon or hard rectangular border is introduced.
+    const coastImage = coastalSource.image as HTMLImageElement
+    const coastWidth = coastImage?.naturalWidth || coastImage?.width || 0
+    const coastHeight = coastImage?.naturalHeight || coastImage?.height || 0
+    if (coastWidth > 0 && coastHeight > 0) {
+      const overlay = document.createElement('canvas')
+      overlay.width = width
+      overlay.height = height
+      const overlayContext = overlay.getContext('2d')
+      if (overlayContext) {
+        const destinationTop = Math.round(height * 0.34)
+        const destinationHeight = Math.round(height * 0.31)
+        overlayContext.drawImage(
+          coastImage,
+          coastWidth * 0.17, coastHeight * 0.08,
+          coastWidth * 0.66, coastHeight * 0.38,
+          0, destinationTop, width, destinationHeight,
+        )
+        const fade = overlayContext.createLinearGradient(0, destinationTop, 0, destinationTop + destinationHeight)
+        fade.addColorStop(0, 'rgba(0,0,0,0)')
+        fade.addColorStop(0.16, 'rgba(0,0,0,0.58)')
+        fade.addColorStop(0.82, 'rgba(0,0,0,0.58)')
+        fade.addColorStop(1, 'rgba(0,0,0,0)')
+        overlayContext.globalCompositeOperation = 'destination-in'
+        overlayContext.fillStyle = fade
+        overlayContext.fillRect(0, destinationTop, width, destinationHeight)
+        context.save()
+        context.globalAlpha = 0.34
+        context.drawImage(overlay, 0, 0)
+        context.restore()
+      }
+    }
+
+    const mapped = new THREE.CanvasTexture(canvas)
+    mapped.colorSpace = THREE.SRGBColorSpace
+    mapped.mapping = THREE.EquirectangularReflectionMapping
+    mapped.wrapS = THREE.RepeatWrapping
+    mapped.wrapT = THREE.ClampToEdgeWrapping
+    mapped.minFilter = THREE.LinearMipmapLinearFilter
+    mapped.magFilter = THREE.LinearFilter
+    mapped.generateMipmaps = true
+    mapped.anisotropy = quality === 'mobile' ? 2 : 12
+    mapped.needsUpdate = true
+    return mapped
+  }, [source, coastalSource, quality])
+
   const scene = useThree((state) => state.scene)
   useEffect(() => () => { if (texture !== source) texture.dispose() }, [texture, source])
   useLayoutEffect(() => {
@@ -219,10 +231,6 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
     texture.mapping = THREE.EquirectangularReflectionMapping
     texture.wrapS = THREE.RepeatWrapping
     texture.wrapT = THREE.ClampToEdgeWrapping
-    texture.minFilter = THREE.LinearMipmapLinearFilter
-    texture.magFilter = THREE.LinearFilter
-    texture.generateMipmaps = true
-    texture.anisotropy = quality === 'mobile' ? 2 : 12
     texture.needsUpdate = true
     scene.background = texture
     scene.backgroundRotation.set(0, -Math.PI / 2, 0)
@@ -232,7 +240,7 @@ function SkyCanopy({ quality }: { quality: GraphicsTier }) {
       scene.backgroundRotation.copy(previousRotation)
       scene.backgroundIntensity = previousIntensity
     }
-  }, [scene, texture, quality])
+  }, [scene, texture])
   return null
 }
 
