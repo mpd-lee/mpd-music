@@ -95,6 +95,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
   const prev = useRef(AVATAR_START.clone())
   const route = useRef<THREE.Vector3[]>([])
   const routeIndex = useRef(0)
+  const underwaterDepthRef = useRef(-3.0)
   const attachAvatarRoot = useCallback((node: THREE.Group | null) => {
     root.current = node
     if (avatarRootRef) avatarRootRef.current = node
@@ -105,16 +106,19 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const pos = root.current.position
     const facing = root.current.rotation.y
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 820px)').matches
-    // Use the outdoor third-person distance/zoom behaviour. A slightly wider
-    // underwater FOV makes the reef feel a little farther away; scale the diver
-    // by the matching optical ratio so the avatar stays the same apparent size.
+    // Keep the diver at the same third-person scale as the outdoor avatar.
     const distance = coarse ? 9.2 : 9.0
     const targetHeight = 1.18
     const cameraHeight = 2.82
+    // Give the underwater panorama a subtle 2-degree wider view so the reef
+    // reads slightly farther away. Compensate the diver's model scale so the
+    // avatar remains the same apparent size as outdoors; later FOV zoom affects
+    // the diver and panorama together.
     const outdoorFov = coarse ? 52 : 50
-    const underwaterFov = coarse ? 55 : 53
-    const fovCompensation = Math.tan(THREE.MathUtils.degToRad(underwaterFov / 2)) / Math.tan(THREE.MathUtils.degToRad(outdoorFov / 2))
-    root.current.scale.setScalar(underwaterMode ? fovCompensation : 1)
+    const underwaterFov = outdoorFov + 2
+    const diverScaleCompensation = Math.tan(THREE.MathUtils.degToRad(underwaterFov * 0.5))
+      / Math.tan(THREE.MathUtils.degToRad(outdoorFov * 0.5))
+    root.current.scale.setScalar(underwaterMode ? diverScaleCompensation : 1)
     if ((camera as THREE.PerspectiveCamera).isPerspectiveCamera) {
       const perspective = camera as THREE.PerspectiveCamera
       perspective.fov = underwaterMode ? underwaterFov : outdoorFov
@@ -134,6 +138,8 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
 
   useEffect(() => {
     if (!target) return
+    if (!underwaterMode && underwaterTargetRef) underwaterTargetRef.current = null
+    if (underwaterMode) underwaterDepthRef.current = THREE.MathUtils.clamp(target.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.02)
     sitting.current = false
     lying.current = false
     arrived.current = false
@@ -149,6 +155,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       const destination = target.clone()
       const delta = destination.clone().sub(root.current.position)
       root.current.position.copy(destination)
+      if (underwaterMode) underwaterDepthRef.current = destination.y
       prev.current.copy(destination)
       camera.position.add(delta)
       if (controls) {
@@ -231,8 +238,6 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     collisionDirtyRef.current = true
   }, [underwaterMode, scene])
 
-  // PlayerControls writes directly to moveVectorRef; no event bridge is needed.
-
 
   useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
@@ -249,12 +254,17 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     const inputLength = Math.hypot(input.x, input.z)
 
     if (underwaterMode) {
-      // Underwater translation/camera follow are owned by the single
-      // UnderwaterMovementController in StudioScene. Avatar only reads the same
-      // input refs here to animate the swimming pose; it never moves the root.
-      sitting.current = false
-      lying.current = false
-      moving = inputLength > 0.006 || Math.abs(input.y ?? 0) > 0.006 || Boolean(underwaterTargetRef?.current)
+      // Translation is owned by UnderwaterMovementController in StudioScene.
+      // Avatar reads the same inputs only to animate the swimming pose.
+      const verticalInput = THREE.MathUtils.clamp(input.y ?? 0, -1, 1)
+      const hasWaypoint = Boolean(underwaterTargetRef?.current)
+      moving = inputLength > 0.025 || Math.abs(verticalInput) > 0.025 || hasWaypoint
+      if (moving) {
+        sitting.current = false
+        lying.current = false
+        arrived.current = true
+      }
+      underwaterDepthRef.current = g.position.y
     } else {
       if (inputLength > 0.012) {
         sitting.current = false
@@ -317,8 +327,6 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
       ? -1.90 + Math.sin(phase.current * 1.05) * 0.018
       : -0.48 + Math.sin(phase.current * 1.15) * 0.025
     if (swimming.current) {
-      // Pool surface float is handled here. The underwater depth and buoyancy
-      // are exclusively controlled by UnderwaterMovementController.
       if (!underwaterMode) {
         g.position.y = THREE.MathUtils.lerp(g.position.y, waterFloatY, diving.current ? 0.12 : 0.14)
       }
@@ -337,6 +345,12 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
         g.position.x *= scale
         g.position.z *= scale
       }
+    } else if (underwaterMode) {
+      // Keep free-swimming movement inside the underwater exploration volume.
+      g.position.x = THREE.MathUtils.clamp(g.position.x, UNDERWATER_MIN_X, UNDERWATER_MAX_X)
+      g.position.z = THREE.MathUtils.clamp(g.position.z, UNDERWATER_MIN_Z, UNDERWATER_MAX_Z)
+      g.position.y = THREE.MathUtils.clamp(g.position.y, UNDERWATER_MIN_Y, UNDERWATER_SURFACE_Y - 0.02)
+      underwaterDepthRef.current = g.position.y
     }
 
     phase.current += dt * (moving ? 10 : sitting.current ? 1.5 : swimming.current ? 5.2 : 2)
@@ -475,9 +489,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     body.current!.position.y = THREE.MathUtils.lerp(body.current!.position.y, bodyY, 0.2)
 
     const cameraDelta = g.position.clone().sub(prev.current)
-    if (!underwaterMode && cameraDelta.lengthSq() > 1e-10) {
-      // Outdoor camera follow stays with Avatar. Underwater camera follow is
-      // owned by UnderwaterMovementController to prevent competing updates.
+    if (!underwaterMode && cameraDelta.lengthSq() > 0) {
       camera.position.add(cameraDelta)
       if (controls) {
         controls.target.add(cameraDelta)
@@ -489,7 +501,7 @@ export function Avatar({ target, instantTravel = false, underwaterMode = false, 
     prev.current.copy(g.position)
 
     const now = performance.now()
-    if (!underwaterMode && onMove && now - lastMoveSent.current > 140) {
+    if (onMove && !underwaterMode && now - lastMoveSent.current > 140) {
       const moved = g.position.distanceToSquared(lastSentPosition.current) > 0.0025
       let rotationDelta = g.rotation.y - lastSentRotation.current
       rotationDelta = Math.atan2(Math.sin(rotationDelta), Math.cos(rotationDelta))

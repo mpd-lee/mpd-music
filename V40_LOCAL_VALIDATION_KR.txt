@@ -1,0 +1,12 @@
+﻿V40 로컬 검증 절차
+
+1. APPLY_MPD_MUSIC_STUDIO_WORLD_V40_FINAL.ps1 실행
+2. 스크립트가 기존 변경사항이 있으면 git stash push --include-untracked로 보관
+3. 4개 TSX 소스 파일만 백업 후 교체
+4. npx --yes pnpm@12.3.4 exec tsc --noEmit
+5. npx --yes pnpm@12.3.4 build
+6. 검사 성공 시 4개 소스 및 V40 기록 파일만 커밋하고 main Push
+7. Vercel Production 배포 후 mpd-music.vercel.app 별칭 연결
+
+검사가 커밋 전에 실패하면 패치가 덮어쓴 파일만 백업본으로 복원하고 중단합니다.
+기존 Git stash는 자동으로 pop하지 않습니다.

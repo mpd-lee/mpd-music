@@ -1,0 +1,20 @@
+﻿MPD MUSIC STUDIO WORLD V40 PATCH MANIFEST
+
+Patched source files:
+- components/studio/scene/outdoor.tsx
+- components/studio/scene/underwater-world.tsx
+- components/studio/scene/avatar.tsx
+- components/studio/scene/studio-scene.tsx
+
+Preserved / not patched:
+- app/globals.css
+- components/studio/chat-panel.tsx
+- components/studio/studio-app.tsx
+- components/studio/player-controls.tsx
+- all other UI layout files
+- .env, .env.local, Vercel secrets, Supabase secrets
+
+Validation in package-generation environment:
+- TypeScript transpile syntax diagnostics: PASS for all 4 patched TSX files.
+- Full project tsc/build: not run here because pnpm 12.3.4 could not be downloaded in the isolated environment.
+- Installer runs full TypeScript and Next.js build checks before commit/push.
